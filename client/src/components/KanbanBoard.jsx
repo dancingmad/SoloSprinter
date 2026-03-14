@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Button, Input, Typography, Popconfirm, Tooltip, Modal } from 'antd'
+import { Button, Input, Typography, Popconfirm, Tooltip, Modal, Tag } from 'antd'
 import { PlusOutlined, MinusOutlined } from '@ant-design/icons'
 import {
   DndContext,
@@ -14,8 +14,19 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
+import { updateTaskPriorities } from '../api'
 import TaskCard from './TaskCard'
 import TaskModal from './TaskModal'
+
+const LABEL_COLORS = ['magenta','red','volcano','orange','gold','lime','green','cyan','blue','geekblue','purple']
+
+function labelColor(label) {
+  let hash = 0
+  for (let i = 0; i < label.length; i++) {
+    hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+  }
+  return LABEL_COLORS[hash % LABEL_COLORS.length]
+}
 
 function DroppableCell({ id, children, onClick }) {
   const { setNodeRef, isOver } = useDroppable({ id })
@@ -59,12 +70,14 @@ function AddNameModal({ title, open, onOk, onCancel }) {
 }
 
 export default function KanbanBoard({
+  boardId,
   tasks, states, swimlanes, labels,
   swimlaneMode, filters,
   onCreateTask, onUpdateTask, onDeleteTask,
   onAddState, onDeleteState,
   onAddSwimlane, onDeleteSwimlane,
-  onAddLabel, onDeleteLabel
+  onAddLabel, onDeleteLabel,
+  onUpdateTaskPriorities
 }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -72,7 +85,8 @@ export default function KanbanBoard({
   const [addStateOpen, setAddStateOpen] = useState(false)
   const [addRowOpen, setAddRowOpen] = useState(false)
 
-  const rows = swimlaneMode ? swimlanes : labels
+  const NO_LABEL = '(No Label)'
+  const rows = swimlaneMode ? swimlanes : [NO_LABEL, ...labels]
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -87,17 +101,23 @@ export default function KanbanBoard({
 
   const getTasksForCell = (state, row) => {
     let cellTasks = filteredTasks.filter(t => {
-      const rowMatch = swimlaneMode ? t.swimlane === row : t.label === row
+      let rowMatch
+      if (!swimlaneMode && row === NO_LABEL) {
+        rowMatch = !t.label || t.label === ''
+      } else {
+        rowMatch = swimlaneMode ? t.swimlane === row : t.label === row
+      }
       return t.state === state && rowMatch
     })
-    if (filters.maxPerColumn) cellTasks = cellTasks.slice(-filters.maxPerColumn)
+    cellTasks.sort((a, b) => (a.priority ?? 9999) - (b.priority ?? 9999))
+    if (filters.maxPerColumn) cellTasks = cellTasks.slice(0, filters.maxPerColumn)
     return cellTasks
   }
 
   const handleCellClick = async (state, row) => {
     const fields = swimlaneMode
       ? { state, swimlane: row, label: '' }
-      : { state, swimlane: swimlanes[0] || 'Backlog', label: row }
+      : { state, swimlane: swimlanes[0] || 'Backlog', label: row === NO_LABEL ? '' : row }
     const task = await onCreateTask(fields)
     setSelectedTask(task)
     setModalOpen(true)
@@ -108,7 +128,7 @@ export default function KanbanBoard({
     setActiveTask(task || null)
   }
 
-  const handleDragEnd = ({ active, over }) => {
+  const handleDragEnd = async ({ active, over }) => {
     setActiveTask(null)
     if (!over) return
     const task = tasks.find(t => t.id === active.id)
@@ -117,6 +137,7 @@ export default function KanbanBoard({
     // over.id is either a droppable cell id "state||row" or a task id
     let targetState = task.state
     let targetRow = swimlaneMode ? task.swimlane : task.label
+    let insertBeforeId = null
 
     const overId = over.id
     if (typeof overId === 'string' && overId.includes('||')) {
@@ -124,20 +145,68 @@ export default function KanbanBoard({
       targetState = st
       targetRow = rw
     } else {
-      // dropped on another task — find its cell
+      // dropped on another task — find its cell and insert before it
       const overTask = tasks.find(t => t.id === overId)
       if (overTask) {
         targetState = overTask.state
         targetRow = swimlaneMode ? overTask.swimlane : overTask.label
+        insertBeforeId = overId
       }
     }
 
-    if (targetState === task.state && targetRow === (swimlaneMode ? task.swimlane : task.label)) return
+    const sourceRow = swimlaneMode ? task.swimlane : task.label
+    const movingCell = targetState !== task.state || targetRow !== sourceRow
+    const newLabel = swimlaneMode ? task.label : (targetRow === NO_LABEL ? '' : targetRow)
 
-    const update = swimlaneMode
-      ? { state: targetState, swimlane: targetRow }
-      : { state: targetState, label: targetRow }
-    onUpdateTask(task.id, update)
+    // Build the new ordered list for the target cell
+    const targetRowKey = swimlaneMode ? targetRow : (targetRow === NO_LABEL ? '' : targetRow)
+    let targetCellTasks = tasks
+      .filter(t => {
+        if (t.id === task.id) return false
+        const rowVal = swimlaneMode ? t.swimlane : t.label
+        return t.state === targetState && rowVal === targetRowKey
+      })
+      .sort((a, b) => (a.priority ?? 9999) - (b.priority ?? 9999))
+
+    // Insert the dragged task at the right position
+    const insertIdx = insertBeforeId ? targetCellTasks.findIndex(t => t.id === insertBeforeId) : -1
+    if (insertIdx >= 0) {
+      targetCellTasks.splice(insertIdx, 0, task)
+    } else {
+      targetCellTasks.push(task)
+    }
+
+    // Assign sequential priorities
+    const priorityUpdates = targetCellTasks.map((t, i) => ({ id: t.id, priority: i }))
+
+    if (movingCell) {
+      const update = swimlaneMode
+        ? { state: targetState, swimlane: targetRow }
+        : { state: targetState, label: newLabel }
+      await onUpdateTask(task.id, update)
+    }
+
+    // Also reassign priorities for the source cell if task moved away
+    if (movingCell) {
+      const sourceRowKey = swimlaneMode ? sourceRow : (sourceRow === NO_LABEL ? '' : sourceRow)
+      const sourceCellTasks = tasks
+        .filter(t => t.id !== task.id && t.state === task.state && (swimlaneMode ? t.swimlane : t.label) === sourceRowKey)
+        .sort((a, b) => (a.priority ?? 9999) - (b.priority ?? 9999))
+      sourceCellTasks.forEach((t, i) => priorityUpdates.push({ id: t.id, priority: i }))
+    }
+
+    onUpdateTaskPriorities && onUpdateTaskPriorities(priorityUpdates)
+    await updateTaskPriorities(boardId, priorityUpdates)
+
+    // In label mode, clean up labels that no longer have any tasks
+    if (!swimlaneMode && movingCell) {
+      const allTasks = tasks.map(t => t.id === task.id ? { ...t, label: newLabel } : t)
+      for (const lbl of labels) {
+        if (lbl && !allTasks.some(t => t.label === lbl)) {
+          await onDeleteLabel(lbl)
+        }
+      }
+    }
   }
 
   const openTask = (task) => {
@@ -148,7 +217,34 @@ export default function KanbanBoard({
   const handleUpdateTask = async (id, fields) => {
     const updated = await onUpdateTask(id, fields)
     if (selectedTask && selectedTask.id === id) setSelectedTask(updated)
+    // Clean up labels with no tasks after a label change
+    if ('label' in fields) {
+      const allTasks = tasks.map(t => t.id === id ? { ...t, label: fields.label } : t)
+      for (const lbl of labels) {
+        if (lbl && !allTasks.some(t => t.label === lbl)) {
+          await onDeleteLabel(lbl)
+        }
+      }
+    }
     return updated
+  }
+
+  const handleModalClose = async (task, newLabel) => {
+    // Save label if it changed
+    if (newLabel !== (task.label || '')) {
+      await onUpdateTask(task.id, { label: newLabel })
+    }
+    // Add to config if it's a new non-empty label
+    if (newLabel && !labels.includes(newLabel)) {
+      await onAddLabel(newLabel)
+    }
+    // Remove labels that no longer have any tasks
+    const allTasks = tasks.map(t => t.id === task.id ? { ...t, label: newLabel } : t)
+    for (const lbl of labels) {
+      if (lbl && !allTasks.some(t => t.label === lbl)) {
+        await onDeleteLabel(lbl)
+      }
+    }
   }
 
   const colWidth = `${Math.max(180, Math.floor(100 / (states.length + 1)))}px`
@@ -205,8 +301,11 @@ export default function KanbanBoard({
                 <tr key={row}>
                   <td style={tdStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                      <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{row}</Typography.Text>
-                      {rows.length > 1 && (
+                      {!swimlaneMode && row !== NO_LABEL
+                        ? <Tag color={labelColor(row)} style={{ fontSize: 12, margin: 0 }}>{row}</Tag>
+                        : <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{row}</Typography.Text>
+                      }
+                      {rows.length > 1 && row !== NO_LABEL && (
                         <Popconfirm
                           title={`Delete row "${row}"?`}
                           onConfirm={() => swimlaneMode ? onDeleteSwimlane(row) : onDeleteLabel(row)}
@@ -281,6 +380,7 @@ export default function KanbanBoard({
       </DndContext>
 
       <TaskModal
+        boardId={boardId}
         task={selectedTask}
         states={states}
         swimlanes={swimlanes}
@@ -289,6 +389,7 @@ export default function KanbanBoard({
         onClose={() => setModalOpen(false)}
         onUpdate={handleUpdateTask}
         onDelete={onDeleteTask}
+        onModalClose={handleModalClose}
       />
 
       <AddNameModal

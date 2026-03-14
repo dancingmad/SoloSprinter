@@ -1,8 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { ConfigProvider, theme, Layout, Typography, Spin, message } from 'antd'
+import { ConfigProvider, theme, Layout, Typography, Spin, message, Button, Tooltip } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import KanbanBoard from './components/KanbanBoard'
 import FilterBar from './components/FilterBar'
+import BoardPicker from './components/BoardPicker'
 import {
+  fetchBoards, createBoard, deleteBoard, renameBoard,
   fetchTasks, fetchStates, fetchSwimlanes, fetchLabels,
   createTask, updateTask, deleteTask,
   addState, deleteState, addSwimlane, deleteSwimlane,
@@ -12,81 +15,131 @@ import {
 const { Header, Content } = Layout
 
 export default function App() {
+  const [boards, setBoards] = useState([])
+  const [activeBoard, setActiveBoard] = useState(null)
   const [tasks, setTasks] = useState([])
   const [states, setStates] = useState([])
   const [swimlanes, setSwimlanes] = useState([])
   const [labels, setLabels] = useState([])
   const [loading, setLoading] = useState(true)
-  const [swimlaneMode, setSwimlaneMode] = useState(true) // true = swimlane rows, false = label rows
+  const [boardLoading, setBoardLoading] = useState(false)
+  const [swimlaneMode, setSwimlaneMode] = useState(true)
   const [filters, setFilters] = useState({ label: null, dateFrom: null, dateTo: null, maxPerColumn: null })
   const [messageApi, contextHolder] = message.useMessage()
 
-  const reload = useCallback(async () => {
-    setLoading(true)
+  // Load boards list on mount
+  useEffect(() => {
+    fetchBoards()
+      .then(setBoards)
+      .catch(() => messageApi.error('Failed to load boards'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  // Load board data when a board is selected
+  const loadBoard = useCallback(async (board) => {
+    setBoardLoading(true)
     try {
-      const [t, s, sw, lb] = await Promise.all([fetchTasks(), fetchStates(), fetchSwimlanes(), fetchLabels()])
+      const [t, s, sw, lb] = await Promise.all([
+        fetchTasks(board.id),
+        fetchStates(board.id),
+        fetchSwimlanes(board.id),
+        fetchLabels(board.id)
+      ])
       setTasks(t)
       setStates(s)
       setSwimlanes(sw)
       setLabels(lb)
+      setActiveBoard(board)
+      setSwimlaneMode(true)
+      setFilters({ label: null, dateFrom: null, dateTo: null, maxPerColumn: null })
     } catch (e) {
-      messageApi.error('Failed to load data')
+      messageApi.error('Failed to load board data')
     } finally {
-      setLoading(false)
+      setBoardLoading(false)
     }
   }, [messageApi])
 
-  useEffect(() => { reload() }, [reload])
+  // Board management
+  const handleCreateBoard = async (name) => {
+    const board = await createBoard(name)
+    if (board.error) { messageApi.error(board.error); return }
+    setBoards(prev => [...prev, board])
+  }
 
+  const handleDeleteBoard = async (id) => {
+    await deleteBoard(id)
+    setBoards(prev => prev.filter(b => b.id !== id))
+    if (activeBoard && activeBoard.id === id) setActiveBoard(null)
+  }
+
+  const handleRenameBoard = async (id, name) => {
+    const board = await renameBoard(id, name)
+    if (board.error) { messageApi.error(board.error); return }
+    setBoards(prev => prev.map(b => b.id === id ? board : b))
+    if (activeBoard && activeBoard.id === id) setActiveBoard(board)
+  }
+
+  // Task handlers
   const handleCreateTask = async (fields) => {
-    const task = await createTask(fields)
+    const task = await createTask(activeBoard.id, fields)
     setTasks(prev => [...prev, task])
     return task
   }
 
   const handleUpdateTask = async (id, fields) => {
-    const task = await updateTask(id, fields)
+    const task = await updateTask(activeBoard.id, id, fields)
     setTasks(prev => prev.map(t => t.id === id ? task : t))
     return task
   }
 
+  const handleUpdateTaskPriorities = (updates) => {
+    // updates: [{id, priority}] — apply optimistically to local state
+    setTasks(prev => prev.map(t => {
+      const u = updates.find(u => u.id === t.id)
+      return u ? { ...t, priority: u.priority } : t
+    }))
+  }
+
   const handleDeleteTask = async (id) => {
-    await deleteTask(id)
+    await deleteTask(activeBoard.id, id)
     setTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  // State handlers
   const handleAddState = async (name) => {
-    const result = await addState(name)
+    const result = await addState(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setStates(result)
   }
 
   const handleDeleteState = async (name) => {
-    const result = await deleteState(name)
+    const result = await deleteState(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setStates(result)
   }
 
+  // Swimlane handlers
   const handleAddSwimlane = async (name) => {
-    const result = await addSwimlane(name)
+    const result = await addSwimlane(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setSwimlanes(result)
   }
 
   const handleDeleteSwimlane = async (name) => {
-    const result = await deleteSwimlane(name)
+    const result = await deleteSwimlane(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setSwimlanes(result)
   }
 
+  // Label handlers
   const handleAddLabel = async (name) => {
-    const result = await addLabel(name)
+    const result = await addLabel(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setLabels(result)
   }
 
   const handleDeleteLabel = async (name) => {
-    const result = await deleteLabel(name)
+    const result = await deleteLabel(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setLabels(result)
   }
@@ -95,13 +148,33 @@ export default function App() {
     <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
       {contextHolder}
       <Layout style={{ minHeight: '100vh' }}>
-        <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', background: '#1677ff' }}>
-          <Typography.Title level={3} style={{ color: '#fff', margin: 0 }}>
-            🏃 SoloSprinter
+        <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', background: '#1677ff', gap: 12 }}>
+          {activeBoard && (
+            <Tooltip title="Back to boards">
+              <Button
+                type="text"
+                icon={<ArrowLeftOutlined />}
+                onClick={() => setActiveBoard(null)}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+          <Typography.Title level={3} style={{ color: '#fff', margin: 0, flex: 1 }}>
+            🏃 SoloSprinter{activeBoard ? ` — ${activeBoard.name}` : ''}
           </Typography.Title>
         </Header>
-        <Content style={{ padding: '16px', overflow: 'auto' }}>
+        <Content style={{ padding: activeBoard ? '16px' : 0, overflow: 'auto' }}>
           {loading ? (
+            <Spin size="large" style={{ display: 'block', marginTop: 80, textAlign: 'center' }} />
+          ) : !activeBoard ? (
+            <BoardPicker
+              boards={boards}
+              onSelect={loadBoard}
+              onCreate={handleCreateBoard}
+              onDelete={handleDeleteBoard}
+              onRename={handleRenameBoard}
+            />
+          ) : boardLoading ? (
             <Spin size="large" style={{ display: 'block', marginTop: 80, textAlign: 'center' }} />
           ) : (
             <>
@@ -113,6 +186,7 @@ export default function App() {
                 onFiltersChange={setFilters}
               />
               <KanbanBoard
+                boardId={activeBoard.id}
                 tasks={tasks}
                 states={states}
                 swimlanes={swimlanes}
@@ -121,6 +195,7 @@ export default function App() {
                 filters={filters}
                 onCreateTask={handleCreateTask}
                 onUpdateTask={handleUpdateTask}
+                onUpdateTaskPriorities={handleUpdateTaskPriorities}
                 onDeleteTask={handleDeleteTask}
                 onAddState={handleAddState}
                 onDeleteState={handleDeleteState}

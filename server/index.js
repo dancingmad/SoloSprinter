@@ -1,17 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 
-// API routes
-app.use('/api/tasks', require('./routes/tasks'));
-app.use('/api/states', require('./routes/states'));
-app.use('/api/swimlanes', require('./routes/swimlanes'));
+// Boards CRUD
+app.use('/api/boards', require('./routes/boards'));
+
+// Per-board routes
+app.use('/api/boards/:boardId/tasks', require('./routes/tasks'));
+app.use('/api/boards/:boardId/states', require('./routes/states'));
+app.use('/api/boards/:boardId/swimlanes', require('./routes/swimlanes'));
 
 // Serve built client in production
 const clientDist = path.join(__dirname, '../client/dist');

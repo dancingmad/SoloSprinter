@@ -4,40 +4,128 @@ const matter = require('gray-matter');
 const { v4: uuidv4 } = require('uuid');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const BOARDS_FILE = path.join(DATA_DIR, 'boards.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function getConfig() {
+// ── Boards ────────────────────────────────────────────────────────────────────
+
+function getBoards() {
   ensureDataDir();
-  if (!fs.existsSync(CONFIG_FILE)) {
+  if (!fs.existsSync(BOARDS_FILE)) {
+    // Migrate: if there is an existing config.json at root, treat it as a default board
+    const legacyConfig = path.join(DATA_DIR, 'config.json');
+    if (fs.existsSync(legacyConfig)) {
+      const defaultBoard = { id: 'default', name: 'My Board' };
+      const boards = [defaultBoard];
+      fs.writeFileSync(BOARDS_FILE, JSON.stringify(boards, null, 2));
+      // Move legacy config + task folders into data/default/
+      const boardDir = path.join(DATA_DIR, 'default');
+      if (!fs.existsSync(boardDir)) fs.mkdirSync(boardDir);
+      // Move config.json
+      fs.renameSync(legacyConfig, path.join(boardDir, 'config.json'));
+      // Move task folders (uuid-named directories)
+      const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name !== 'default') {
+          fs.renameSync(path.join(DATA_DIR, entry.name), path.join(boardDir, entry.name));
+        }
+      }
+      return boards;
+    }
+    const boards = [];
+    fs.writeFileSync(BOARDS_FILE, JSON.stringify(boards, null, 2));
+    return boards;
+  }
+  return JSON.parse(fs.readFileSync(BOARDS_FILE, 'utf8'));
+}
+
+function saveBoards(boards) {
+  ensureDataDir();
+  fs.writeFileSync(BOARDS_FILE, JSON.stringify(boards, null, 2));
+}
+
+function createBoard(name) {
+  const boards = getBoards();
+  const id = uuidv4();
+  const board = { id, name };
+  boards.push(board);
+  saveBoards(boards);
+  const boardDir = path.join(DATA_DIR, id);
+  if (!fs.existsSync(boardDir)) fs.mkdirSync(boardDir, { recursive: true });
+  return board;
+}
+
+function deleteBoard(id) {
+  const boards = getBoards();
+  const idx = boards.findIndex(b => b.id === id);
+  if (idx === -1) return false;
+  boards.splice(idx, 1);
+  saveBoards(boards);
+  const boardDir = path.join(DATA_DIR, id);
+  if (fs.existsSync(boardDir)) fs.rmSync(boardDir, { recursive: true });
+  return true;
+}
+
+function renameBoard(id, name) {
+  const boards = getBoards();
+  const board = boards.find(b => b.id === id);
+  if (!board) return null;
+  board.name = name;
+  saveBoards(boards);
+  return board;
+}
+
+// ── Board config (states / swimlanes / labels) ────────────────────────────────
+
+function getBoardDir(boardId) {
+  return path.join(DATA_DIR, boardId);
+}
+
+function getConfigFile(boardId) {
+  return path.join(DATA_DIR, boardId, 'config.json');
+}
+
+function getConfig(boardId) {
+  const boardDir = getBoardDir(boardId);
+  if (!fs.existsSync(boardDir)) fs.mkdirSync(boardDir, { recursive: true });
+  const configFile = getConfigFile(boardId);
+  if (!fs.existsSync(configFile)) {
     const defaultConfig = {
       states: ['Todo', 'Work in Progress', 'Done'],
       swimlanes: ['Backlog'],
       labels: []
     };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
+    fs.writeFileSync(configFile, JSON.stringify(defaultConfig, null, 2));
     return defaultConfig;
   }
-  return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  return JSON.parse(fs.readFileSync(configFile, 'utf8'));
 }
 
-function saveConfig(config) {
-  ensureDataDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+function saveConfig(boardId, config) {
+  const boardDir = getBoardDir(boardId);
+  if (!fs.existsSync(boardDir)) fs.mkdirSync(boardDir, { recursive: true });
+  fs.writeFileSync(getConfigFile(boardId), JSON.stringify(config, null, 2));
 }
 
-function getAllTasks() {
-  ensureDataDir();
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+function getTaskDir(boardId, taskId) {
+  return path.join(DATA_DIR, boardId, taskId);
+}
+
+function getAllTasks(boardId) {
+  const boardDir = getBoardDir(boardId);
+  if (!fs.existsSync(boardDir)) return [];
   const tasks = [];
-  const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+  const entries = fs.readdirSync(boardDir, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      const taskFile = path.join(DATA_DIR, entry.name, 'task.md');
+      const taskFile = path.join(boardDir, entry.name, 'task.md');
       if (fs.existsSync(taskFile)) {
-        const task = readTask(entry.name);
+        const task = readTask(boardId, entry.name);
         if (task) tasks.push(task);
       }
     }
@@ -45,23 +133,23 @@ function getAllTasks() {
   return tasks;
 }
 
-function readTask(id) {
-  const taskFile = path.join(DATA_DIR, id, 'task.md');
+function readTask(boardId, id) {
+  const taskFile = path.join(DATA_DIR, boardId, id, 'task.md');
   if (!fs.existsSync(taskFile)) return null;
   const raw = fs.readFileSync(taskFile, 'utf8');
   const { data, content } = matter(raw);
   return { id, ...data, description: content.trim() };
 }
 
-function writeTask(id, taskData) {
-  const taskDir = path.join(DATA_DIR, id);
+function writeTask(boardId, id, taskData) {
+  const taskDir = path.join(DATA_DIR, boardId, id);
   if (!fs.existsSync(taskDir)) fs.mkdirSync(taskDir, { recursive: true });
   const { description = '', ...frontmatter } = taskData;
   const fileContent = matter.stringify(description, frontmatter);
   fs.writeFileSync(path.join(taskDir, 'task.md'), fileContent);
 }
 
-function createTask(fields) {
+function createTask(boardId, fields) {
   const id = uuidv4();
   const now = new Date().toISOString();
   const taskData = {
@@ -73,31 +161,33 @@ function createTask(fields) {
     updated: now,
     description: fields.description || ''
   };
-  writeTask(id, taskData);
-  appendHistory(id, { action: 'created', state: taskData.state, swimlane: taskData.swimlane, timestamp: now });
+  writeTask(boardId, id, taskData);
+  appendHistory(boardId, id, { action: 'created', state: taskData.state, swimlane: taskData.swimlane, timestamp: now });
   return { id, ...taskData };
 }
 
-function updateTask(id, fields) {
-  const existing = readTask(id);
+function updateTask(boardId, id, fields, skipHistory = false) {
+  const existing = readTask(boardId, id);
   if (!existing) return null;
   const now = new Date().toISOString();
   const updated = { ...existing, ...fields, updated: now };
   const { id: _id, ...taskData } = updated;
-  writeTask(id, taskData);
-  appendHistory(id, { action: 'updated', state: updated.state, swimlane: updated.swimlane, timestamp: now });
+  writeTask(boardId, id, taskData);
+  if (!skipHistory) {
+    appendHistory(boardId, id, { action: 'updated', state: updated.state, swimlane: updated.swimlane, timestamp: now });
+  }
   return updated;
 }
 
-function deleteTask(id) {
-  const taskDir = path.join(DATA_DIR, id);
+function deleteTask(boardId, id) {
+  const taskDir = path.join(DATA_DIR, boardId, id);
   if (!fs.existsSync(taskDir)) return false;
   fs.rmSync(taskDir, { recursive: true });
   return true;
 }
 
-function appendHistory(id, entry) {
-  const historyFile = path.join(DATA_DIR, id, 'history.json');
+function appendHistory(boardId, id, entry) {
+  const historyFile = path.join(DATA_DIR, boardId, id, 'history.json');
   let history = [];
   if (fs.existsSync(historyFile)) {
     history = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
@@ -106,24 +196,15 @@ function appendHistory(id, entry) {
   fs.writeFileSync(historyFile, JSON.stringify(history, null, 2));
 }
 
-function getHistory(id) {
-  const historyFile = path.join(DATA_DIR, id, 'history.json');
+function getHistory(boardId, id) {
+  const historyFile = path.join(DATA_DIR, boardId, id, 'history.json');
   if (!fs.existsSync(historyFile)) return [];
   return JSON.parse(fs.readFileSync(historyFile, 'utf8'));
 }
 
-function saveImage(taskId, file) {
-  const taskDir = path.join(DATA_DIR, taskId);
-  if (!fs.existsSync(taskDir)) fs.mkdirSync(taskDir, { recursive: true });
-  return file.filename;
-}
-
-function getTaskDir(taskId) {
-  return path.join(DATA_DIR, taskId);
-}
-
 module.exports = {
+  getBoards, saveBoards, createBoard, deleteBoard, renameBoard,
   getConfig, saveConfig,
   getAllTasks, readTask, createTask, updateTask, deleteTask,
-  getHistory, saveImage, getTaskDir, DATA_DIR
+  getHistory, getTaskDir, DATA_DIR
 };

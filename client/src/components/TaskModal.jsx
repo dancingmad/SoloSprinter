@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider, AutoComplete, Tooltip, message } from 'antd'
+import { DeleteOutlined, CopyOutlined } from '@ant-design/icons'
 import MDEditor from '@uiw/react-md-editor'
 import { uploadImage, imageUrl } from '../api'
 
-export default function TaskModal({ task, states, swimlanes, labels, open, onClose, onUpdate, onDelete }) {
+export default function TaskModal({ boardId, task, states, swimlanes, labels, open, onClose, onUpdate, onDelete, onModalClose }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [label, setLabel] = useState('')
   const [images, setImages] = useState([])
   const [previewImg, setPreviewImg] = useState(null)
   const titleTimer = useRef(null)
@@ -16,8 +17,9 @@ export default function TaskModal({ task, states, swimlanes, labels, open, onClo
     if (task) {
       setTitle(task.title || '')
       setDescription(task.description || '')
+      setLabel(task.label || '')
       // fetch images list
-      fetch(`/api/tasks/${task.id}/images`)
+      fetch(`/api/boards/${boardId}/tasks/${task.id}/images`)
         .then(r => r.json())
         .then(setImages)
         .catch(() => setImages([]))
@@ -40,11 +42,23 @@ export default function TaskModal({ task, states, swimlanes, labels, open, onClo
     }, 800)
   }
 
+  const handleDeleteImage = async (filename) => {
+    await fetch(`/api/boards/${boardId}/tasks/${task.id}/images/${filename}`, { method: 'DELETE' })
+    setImages(prev => prev.filter(f => f !== filename))
+  }
+
+  const handleCopyImageUrl = (filename) => {
+    const url = imageUrl(boardId, task.id, filename)
+    const mdSnippet = `![${filename}](${url})`
+    navigator.clipboard.writeText(mdSnippet)
+    message.success('Image markdown copied to clipboard')
+  }
+
   const handleDrop = async (e) => {
     e.preventDefault()
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
     for (const file of files) {
-      const result = await uploadImage(task.id, file)
+      const result = await uploadImage(boardId, task.id, file)
       if (result.filename) {
         setImages(prev => [...prev, result.filename])
       }
@@ -95,7 +109,7 @@ export default function TaskModal({ task, states, swimlanes, labels, open, onClo
   return (
     <Modal
       open={open}
-      onCancel={onClose}
+      onCancel={() => { onModalClose && onModalClose(task, label); onClose() }}
       footer={null}
       width="80vw"
       title={
@@ -111,7 +125,17 @@ export default function TaskModal({ task, states, swimlanes, labels, open, onClo
       <Space wrap style={{ marginBottom: 12 }}>
         <Tag color="blue">{task.state}</Tag>
         <Tag color="green">{task.swimlane}</Tag>
-        {task.label && <Tag color="orange">{task.label}</Tag>}
+        <AutoComplete
+          value={label}
+          options={(labels || []).map(l => ({ value: l }))}
+          onChange={val => setLabel(val || '')}
+          placeholder="Add label..."
+          allowClear
+          style={{ width: 160 }}
+          filterOption={(input, option) =>
+            option.value.toLowerCase().includes(input.toLowerCase())
+          }
+        />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           Created: {task.created ? new Date(task.created).toLocaleDateString() : '—'}
         </Typography.Text>
@@ -140,12 +164,32 @@ export default function TaskModal({ task, states, swimlanes, labels, open, onClo
           <Image.PreviewGroup>
             <Space wrap>
               {images.map(img => (
-                <Image
-                  key={img}
-                  src={imageUrl(task.id, img)}
-                  width={120}
-                  style={{ objectFit: 'cover', borderRadius: 4, cursor: 'pointer' }}
-                />
+                <div key={img} style={{ position: 'relative', display: 'inline-block' }}>
+                  <Image
+                    src={imageUrl(boardId, task.id, img)}
+                    width={120}
+                    style={{ objectFit: 'cover', borderRadius: 4, cursor: 'pointer' }}
+                  />
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'center' }}>
+                    <Tooltip title="Copy image URL">
+                      <Button
+                        size="small"
+                        icon={<CopyOutlined />}
+                        onClick={() => handleCopyImageUrl(img)}
+                      />
+                    </Tooltip>
+                    <Popconfirm
+                      title="Delete this image?"
+                      onConfirm={() => handleDeleteImage(img)}
+                      okText="Delete"
+                      okType="danger"
+                    >
+                      <Tooltip title="Delete image">
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                      </Tooltip>
+                    </Popconfirm>
+                  </div>
+                </div>
               ))}
             </Space>
           </Image.PreviewGroup>
