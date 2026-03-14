@@ -1,18 +1,23 @@
 import React, { useState, useMemo } from 'react'
 import { Button, Input, Typography, Popconfirm, Tooltip, Modal, Tag } from 'antd'
-import { PlusOutlined, MinusOutlined } from '@ant-design/icons'
+import { PlusOutlined, MinusOutlined, HolderOutlined } from '@ant-design/icons'
 import {
   DndContext,
   PointerSensor,
   useSensor,
   useSensors,
   DragOverlay,
-  closestCorners
+  closestCorners,
+  closestCenter
 } from '@dnd-kit/core'
 import {
   SortableContext,
-  verticalListSortingStrategy
+  verticalListSortingStrategy,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove
 } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useDroppable } from '@dnd-kit/core'
 import { updateTaskPriorities } from '../api'
 import TaskCard from './TaskCard'
@@ -48,6 +53,72 @@ function DroppableCell({ id, children, onClick }) {
   )
 }
 
+function SortableColumnHeader({ state, states, onDeleteState }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `col::${state}` })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <th ref={setNodeRef} style={{ ...thStyle, ...style }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: '#bbb', marginRight: 2, display: 'flex', alignItems: 'center' }}>
+          <HolderOutlined />
+        </span>
+        <Typography.Text strong style={{ fontSize: 13, flex: 1 }}>{state}</Typography.Text>
+        {states.length > 3 && (
+          <Popconfirm
+            title={`Delete column "${state}"?`}
+            onConfirm={() => onDeleteState(state)}
+            okText="Delete"
+            okType="danger"
+          >
+            <Button type="text" size="small" icon={<MinusOutlined />} danger />
+          </Popconfirm>
+        )}
+      </div>
+    </th>
+  )
+}
+
+function SortableRowHeader({ row, rows, swimlaneMode, NO_LABEL, onDeleteSwimlane, onDeleteLabel }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `row::${row}`,
+    disabled: !swimlaneMode || row === NO_LABEL
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <td ref={setNodeRef} style={{ ...tdStyle, ...style }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+        {swimlaneMode && row !== NO_LABEL && (
+          <span {...attributes} {...listeners} style={{ cursor: 'grab', color: '#bbb', marginRight: 2, display: 'flex', alignItems: 'center' }}>
+            <HolderOutlined />
+          </span>
+        )}
+        {!swimlaneMode && row !== NO_LABEL
+          ? <Tag color={labelColor(row)} style={{ fontSize: 12, margin: 0 }}>{row}</Tag>
+          : <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{row}</Typography.Text>
+        }
+        {rows.length > 1 && row !== NO_LABEL && (
+          <Popconfirm
+            title={`Delete row "${row}"?`}
+            onConfirm={() => swimlaneMode ? onDeleteSwimlane(row) : onDeleteLabel(row)}
+            okText="Delete"
+            okType="danger"
+          >
+            <Button type="text" size="small" icon={<MinusOutlined />} danger />
+          </Popconfirm>
+        )}
+      </div>
+    </td>
+  )
+}
+
 function AddNameModal({ title, open, onOk, onCancel }) {
   const [val, setVal] = useState('')
   return (
@@ -74,8 +145,8 @@ export default function KanbanBoard({
   tasks, states, swimlanes, labels,
   swimlaneMode, filters,
   onCreateTask, onUpdateTask, onDeleteTask,
-  onAddState, onDeleteState,
-  onAddSwimlane, onDeleteSwimlane,
+  onAddState, onDeleteState, onReorderStates,
+  onAddSwimlane, onDeleteSwimlane, onReorderSwimlanes,
   onAddLabel, onDeleteLabel,
   onUpdateTaskPriorities
 }) {
@@ -130,7 +201,28 @@ export default function KanbanBoard({
 
   const handleDragEnd = async ({ active, over }) => {
     setActiveTask(null)
-    if (!over) return
+    if (!over || active.id === over.id) return
+
+    // Column reorder
+    if (String(active.id).startsWith('col::')) {
+      const activeState = String(active.id).slice(5)
+      const overState = String(over.id).slice(5)
+      const oldIndex = states.indexOf(activeState)
+      const newIndex = states.indexOf(overState)
+      if (oldIndex !== -1 && newIndex !== -1) onReorderStates && onReorderStates(arrayMove(states, oldIndex, newIndex))
+      return
+    }
+
+    // Row reorder
+    if (String(active.id).startsWith('row::')) {
+      const activeRow = String(active.id).slice(5)
+      const overRow = String(over.id).slice(5)
+      const oldIndex = swimlanes.indexOf(activeRow)
+      const newIndex = swimlanes.indexOf(overRow)
+      if (oldIndex !== -1 && newIndex !== -1) onReorderSwimlanes && onReorderSwimlanes(arrayMove(swimlanes, oldIndex, newIndex))
+      return
+    }
+
     const task = tasks.find(t => t.id === active.id)
     if (!task) return
 
@@ -265,58 +357,42 @@ export default function KanbanBoard({
               <col style={{ width: 48 }} />
             </colgroup>
             <thead>
-              <tr>
-                <th style={thStyle}></th>
-                {states.map(state => (
-                  <th key={state} style={thStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                      <Typography.Text strong style={{ fontSize: 13 }}>{state}</Typography.Text>
-                      {states.length > 3 && (
-                        <Popconfirm
-                          title={`Delete column "${state}"?`}
-                          onConfirm={() => onDeleteState(state)}
-                          okText="Delete"
-                          okType="danger"
-                        >
-                          <Button type="text" size="small" icon={<MinusOutlined />} danger />
-                        </Popconfirm>
-                      )}
-                    </div>
-                  </th>
-                ))}
-                <th style={thStyle}>
-                  <Tooltip title="Add column">
-                    <Button
-                      type="dashed"
-                      size="small"
-                      icon={<PlusOutlined />}
-                      onClick={() => setAddStateOpen(true)}
-                    />
-                  </Tooltip>
-                </th>
-              </tr>
+                  <SortableContext items={states.map(s => `col::${s}`)} strategy={horizontalListSortingStrategy}>
+                  <tr>
+                    <th style={thStyle}></th>
+                    {states.map(state => (
+                      <SortableColumnHeader
+                        key={state}
+                        state={state}
+                        states={states}
+                        onDeleteState={onDeleteState}
+                      />
+                    ))}
+                    <th style={thStyle}>
+                      <Tooltip title="Add column">
+                        <Button
+                          type="dashed"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => setAddStateOpen(true)}
+                        />
+                      </Tooltip>
+                    </th>
+                  </tr>
+                </SortableContext>
             </thead>
             <tbody>
+                <SortableContext items={(swimlaneMode ? swimlanes : rows).map(r => `row::${r}`)} strategy={verticalListSortingStrategy}>
               {rows.map(row => (
                 <tr key={row}>
-                  <td style={tdStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                      {!swimlaneMode && row !== NO_LABEL
-                        ? <Tag color={labelColor(row)} style={{ fontSize: 12, margin: 0 }}>{row}</Tag>
-                        : <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{row}</Typography.Text>
-                      }
-                      {rows.length > 1 && row !== NO_LABEL && (
-                        <Popconfirm
-                          title={`Delete row "${row}"?`}
-                          onConfirm={() => swimlaneMode ? onDeleteSwimlane(row) : onDeleteLabel(row)}
-                          okText="Delete"
-                          okType="danger"
-                        >
-                          <Button type="text" size="small" icon={<MinusOutlined />} danger />
-                        </Popconfirm>
-                      )}
-                    </div>
-                  </td>
+                  <SortableRowHeader
+                    row={row}
+                    rows={rows}
+                    swimlaneMode={swimlaneMode}
+                    NO_LABEL={NO_LABEL}
+                    onDeleteSwimlane={onDeleteSwimlane}
+                    onDeleteLabel={onDeleteLabel}
+                  />
                   {states.map(state => {
                     const cellId = `${state}||${row}`
                     const cellTasks = getTasksForCell(state, row)
@@ -352,6 +428,7 @@ export default function KanbanBoard({
                   <td style={tdStyle}></td>
                 </tr>
               ))}
+                </SortableContext>
               <tr>
                 <td style={tdStyle}>
                   <Tooltip title={swimlaneMode ? 'Add swimlane' : 'Add label'}>

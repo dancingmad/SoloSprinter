@@ -8,7 +8,8 @@ import {
   fetchBoards, createBoard, deleteBoard, renameBoard,
   fetchTasks, fetchStates, fetchSwimlanes, fetchLabels,
   createTask, updateTask, deleteTask,
-  addState, deleteState, addSwimlane, deleteSwimlane,
+  addState, deleteState, reorderStates,
+  addSwimlane, deleteSwimlane, reorderSwimlanes,
   addLabel, deleteLabel
 } from './api'
 
@@ -118,6 +119,11 @@ export default function App() {
     setStates(result)
   }
 
+  const handleReorderStates = async (order) => {
+    setStates(order)
+    await reorderStates(activeBoard.id, order)
+  }
+
   // Swimlane handlers
   const handleAddSwimlane = async (name) => {
     const result = await addSwimlane(activeBoard.id, name)
@@ -129,6 +135,11 @@ export default function App() {
     const result = await deleteSwimlane(activeBoard.id, name)
     if (result.error) { messageApi.error(result.error); return }
     setSwimlanes(result)
+  }
+
+  const handleReorderSwimlanes = async (order) => {
+    setSwimlanes(order)
+    await reorderSwimlanes(activeBoard.id, order)
   }
 
   // Label handlers
@@ -199,8 +210,10 @@ export default function App() {
                 onDeleteTask={handleDeleteTask}
                 onAddState={handleAddState}
                 onDeleteState={handleDeleteState}
+                onReorderStates={handleReorderStates}
                 onAddSwimlane={handleAddSwimlane}
                 onDeleteSwimlane={handleDeleteSwimlane}
+                onReorderSwimlanes={handleReorderSwimlanes}
                 onAddLabel={handleAddLabel}
                 onDeleteLabel={handleDeleteLabel}
               />

@@ -74,6 +74,15 @@ export async function addState(boardId, name) {
   return r.json()
 }
 
+export async function reorderStates(boardId, order) {
+  const r = await fetch(`${boardBase(boardId)}/states/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order })
+  })
+  return r.json()
+}
+
 export async function deleteState(boardId, name) {
   const r = await fetch(`${boardBase(boardId)}/states/${encodeURIComponent(name)}`, { method: 'DELETE' })
   return r.json()
@@ -89,6 +98,15 @@ export async function addSwimlane(boardId, name) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name })
+  })
+  return r.json()
+}
+
+export async function reorderSwimlanes(boardId, order) {
+  const r = await fetch(`${boardBase(boardId)}/swimlanes/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order })
   })
   return r.json()
 }

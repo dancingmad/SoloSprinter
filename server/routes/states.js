@@ -19,6 +19,19 @@ router.post('/', (req, res) => {
   res.status(201).json(config.states);
 });
 
+// PUT reorder states
+router.put('/reorder', (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+  const config = getConfig(req.params.boardId);
+  if (order.length !== config.states.length || !order.every(s => config.states.includes(s))) {
+    return res.status(400).json({ error: 'Invalid order: must contain same states' });
+  }
+  config.states = order;
+  saveConfig(req.params.boardId, config);
+  res.json(config.states);
+});
+
 // DELETE state (only if no tasks use it)
 router.delete('/:name', (req, res) => {
   const name = decodeURIComponent(req.params.name);
