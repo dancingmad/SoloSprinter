@@ -1,0 +1,11 @@
+{
+  "states": [
+    "Todo",
+    "Work in Progress",
+    "Done"
+  ],
+  "swimlanes": [
+    "Backlog"
+  ],
+  "labels": []
+}
