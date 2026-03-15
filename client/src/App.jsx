@@ -158,7 +158,7 @@ export default function App() {
   return (
     <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
       {contextHolder}
-      <Layout style={{ minHeight: '100vh' }}>
+      <Layout style={{ height: '100vh' }}>
         <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', background: '#1677ff', gap: 12 }}>
           {activeBoard && (
             <Tooltip title="Back to boards">
@@ -174,7 +174,7 @@ export default function App() {
             🏃 SoloSprinter{activeBoard ? ` — ${activeBoard.name}` : ''}
           </Typography.Title>
         </Header>
-        <Content style={{ padding: activeBoard ? '16px' : 0, overflow: 'auto' }}>
+        <Content style={{ padding: activeBoard ? '16px' : 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {loading ? (
             <Spin size="large" style={{ display: 'block', marginTop: 80, textAlign: 'center' }} />
           ) : !activeBoard ? (
@@ -196,6 +196,7 @@ export default function App() {
                 filters={filters}
                 onFiltersChange={setFilters}
               />
+              <div style={{ flex: 1, overflow: 'auto' }}>
               <KanbanBoard
                 boardId={activeBoard.id}
                 tasks={tasks}
@@ -217,6 +218,7 @@ export default function App() {
                 onAddLabel={handleAddLabel}
                 onDeleteLabel={handleDeleteLabel}
               />
+              </div>
             </>
           )}
         </Content>

@@ -349,7 +349,7 @@ export default function KanbanBoard({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div style={{ overflowX: 'auto' }}>
+        <div>
           <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 120 }} />
