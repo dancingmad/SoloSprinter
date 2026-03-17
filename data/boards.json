@@ -4,7 +4,15 @@
     "name": "My Board"
   },
   {
-    "id": "1871e916-a207-45c1-b388-326fdae39593",
-    "name": "Roadmap"
+    "id": "38fccd10-0d88-46a3-945c-db1aa6afcc95",
+    "name": "Account&Compliance"
+  },
+  {
+    "id": "d066d8ad-7ae5-4d95-a3fa-d343c5a04325",
+    "name": "Payment Roadmap"
+  },
+  {
+    "id": "7a06be8b-1460-496a-9ae6-8283756b9eec",
+    "name": "PEL Notes"
   }
 ]

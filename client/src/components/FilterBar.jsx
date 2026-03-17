@@ -1,9 +1,14 @@
 import React from 'react'
-import { Row, Col, Switch, Select, DatePicker, InputNumber, Space, Typography } from 'antd'
+import { Row, Col, Switch, Select, InputNumber, Space, Typography } from 'antd'
 
-const { RangePicker } = DatePicker
+const DAYS_OPTIONS = [
+  { label: 'Today', value: 1 },
+  { label: 'Last 7 days', value: 7 },
+  { label: 'Last 30 days', value: 30 },
+  { label: 'Last 90 days', value: 90 },
+]
 
-export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, filters, onFiltersChange }) {
+export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, filters, onFiltersChange, compactView, onToggleCompactView }) {
   return (
     <Row gutter={16} align="middle" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
       <Col>
@@ -32,13 +37,23 @@ export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, 
       </Col>
       <Col>
         <Space>
-          <Typography.Text>Date range:</Typography.Text>
-          <RangePicker
-            onChange={(_, strs) => onFiltersChange({
-              ...filters,
-              dateFrom: strs[0] || null,
-              dateTo: strs[1] || null
-            })}
+          <Typography.Text>Updated within:</Typography.Text>
+          <Select
+            allowClear
+            placeholder="All time"
+            style={{ minWidth: 130 }}
+            value={filters.daysOld}
+            onChange={val => onFiltersChange({ ...filters, daysOld: val || null })}
+            options={DAYS_OPTIONS}
+          />
+        </Space>
+      </Col>
+      <Col>
+        <Space>
+          <Typography.Text>Compact:</Typography.Text>
+          <Switch
+            checked={compactView}
+            onChange={onToggleCompactView}
           />
         </Space>
       </Col>

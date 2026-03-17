@@ -22,7 +22,7 @@ function countSubtasks(description) {
   return { total, done }
 }
 
-export default function TaskCard({ task, onClick }) {
+export default function TaskCard({ task, onClick, compactView }) {
   const [hovered, setHovered] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -71,7 +71,7 @@ export default function TaskCard({ task, onClick }) {
           )}
         </div>
 
-        {previewText && (
+        {!compactView && previewText && (
           <div style={{ fontSize: 12, color: '#555', maxHeight: hovered ? 400 : 60, overflow: hovered ? 'auto' : 'hidden', marginBottom: 4, transition: 'max-height 0.25s ease' }}>
             <ReactMarkdown>{previewText}</ReactMarkdown>
           </div>

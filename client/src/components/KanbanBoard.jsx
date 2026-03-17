@@ -33,7 +33,7 @@ function labelColor(label) {
   return LABEL_COLORS[hash % LABEL_COLORS.length]
 }
 
-function DroppableCell({ id, children, onClick }) {
+function DroppableCell({ id, children, onClick, baseBg = '#fafafa' }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
     <div
@@ -42,7 +42,7 @@ function DroppableCell({ id, children, onClick }) {
       style={{
         minHeight: 80,
         padding: 6,
-        background: isOver ? '#e6f4ff' : '#fafafa',
+        background: isOver ? '#e6f4ff' : baseBg,
         borderRadius: 6,
         transition: 'background 0.2s',
         cursor: 'pointer'
@@ -142,6 +142,7 @@ function AddNameModal({ title, open, onOk, onCancel }) {
 
 export default function KanbanBoard({
   boardId,
+  compactView,
   tasks, states, swimlanes, labels,
   swimlaneMode, filters,
   onCreateTask, onUpdateTask, onDeleteTask,
@@ -165,8 +166,13 @@ export default function KanbanBoard({
   const filteredTasks = useMemo(() => {
     let result = [...tasks]
     if (filters.label) result = result.filter(t => t.label === filters.label)
-    if (filters.dateFrom) result = result.filter(t => t.created && t.created >= filters.dateFrom)
-    if (filters.dateTo) result = result.filter(t => t.created && t.created <= filters.dateTo + 'T23:59:59')
+    if (filters.daysOld) {
+      const cutoff = new Date()
+      cutoff.setHours(0, 0, 0, 0)
+      cutoff.setDate(cutoff.getDate() - (filters.daysOld - 1))
+      const cutoffTime = cutoff.getTime()
+      result = result.filter(t => t.updated && new Date(t.updated).getTime() >= cutoffTime)
+    }
     return result
   }, [tasks, filters])
 
@@ -383,8 +389,10 @@ export default function KanbanBoard({
             </thead>
             <tbody>
                 <SortableContext items={(swimlaneMode ? swimlanes : rows).map(r => `row::${r}`)} strategy={verticalListSortingStrategy}>
-              {rows.map(row => (
-                <tr key={row}>
+              {rows.map((row, rowIndex) => {
+                const rowBg = rowIndex % 2 === 0 ? '#f0ebfa' : '#eaf1fb'
+                return (
+                <tr key={row} style={{ background: rowBg }}>
                   <SortableRowHeader
                     row={row}
                     rows={rows}
@@ -401,6 +409,7 @@ export default function KanbanBoard({
                         <SortableContext items={cellTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                           <DroppableCell
                             id={cellId}
+                            baseBg={rowBg}
                             onClick={(e) => {
                               if (e.target === e.currentTarget) handleCellClick(state, row)
                             }}
@@ -409,6 +418,7 @@ export default function KanbanBoard({
                               <TaskCard
                                 key={task.id}
                                 task={task}
+                                compactView={compactView}
                                 onClick={(e) => { e.stopPropagation(); openTask(task) }}
                               />
                             ))}
@@ -427,7 +437,8 @@ export default function KanbanBoard({
                   })}
                   <td style={tdStyle}></td>
                 </tr>
-              ))}
+                )
+              })}
                 </SortableContext>
               <tr>
                 <td style={tdStyle}>
@@ -450,7 +461,7 @@ export default function KanbanBoard({
         <DragOverlay>
           {activeTask && (
             <div style={{ width: 220, opacity: 0.9 }}>
-              <TaskCard task={activeTask} onClick={() => {}} />
+              <TaskCard task={activeTask} compactView={compactView} onClick={() => {}} />
             </div>
           )}
         </DragOverlay>

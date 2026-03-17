@@ -5,8 +5,13 @@
     "Done"
   ],
   "swimlanes": [
+    "Week 13",
     "Backlog",
-    "Week 13"
+    "Empty"
   ],
-  "labels": []
+  "labels": [
+    "VisaTMS",
+    "PEL",
+    "PCIAWS"
+  ]
 }

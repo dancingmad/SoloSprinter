@@ -25,7 +25,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [boardLoading, setBoardLoading] = useState(false)
   const [swimlaneMode, setSwimlaneMode] = useState(true)
-  const [filters, setFilters] = useState({ label: null, dateFrom: null, dateTo: null, maxPerColumn: null })
+  const [compactView, setCompactView] = useState(false)
+  const [filters, setFilters] = useState({ label: null, daysOld: null, maxPerColumn: null })
   const [messageApi, contextHolder] = message.useMessage()
 
   // Load boards list on mount
@@ -52,7 +53,7 @@ export default function App() {
       setLabels(lb)
       setActiveBoard(board)
       setSwimlaneMode(true)
-      setFilters({ label: null, dateFrom: null, dateTo: null, maxPerColumn: null })
+      setFilters({ label: null, daysOld: null, maxPerColumn: null })
     } catch (e) {
       messageApi.error('Failed to load board data')
     } finally {
@@ -195,10 +196,13 @@ export default function App() {
                 onToggleSwimlaneMode={setSwimlaneMode}
                 filters={filters}
                 onFiltersChange={setFilters}
+                compactView={compactView}
+                onToggleCompactView={setCompactView}
               />
               <div style={{ flex: 1, overflow: 'auto' }}>
               <KanbanBoard
                 boardId={activeBoard.id}
+                compactView={compactView}
                 tasks={tasks}
                 states={states}
                 swimlanes={swimlanes}
