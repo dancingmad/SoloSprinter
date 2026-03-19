@@ -165,7 +165,9 @@ export default function KanbanBoard({
   // Apply filters
   const filteredTasks = useMemo(() => {
     let result = [...tasks]
-    if (filters.label) result = result.filter(t => t.label === filters.label)
+    if (filters.label) result = result.filter(t =>
+      t.label === filters.label || (t.extraLabels || []).includes(filters.label)
+    )
     if (filters.daysOld) {
       const cutoff = new Date()
       cutoff.setHours(0, 0, 0, 0)

@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider, AutoComplete, Tooltip, message } from 'antd'
-import { DeleteOutlined, CopyOutlined } from '@ant-design/icons'
+import { DeleteOutlined, CopyOutlined, PlusOutlined } from '@ant-design/icons'
+
+const LABEL_COLORS = ['magenta','red','volcano','orange','gold','lime','green','cyan','blue','geekblue','purple']
+function labelColor(label) {
+  let hash = 0
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+  return LABEL_COLORS[hash % LABEL_COLORS.length]
+}
 import MDEditor from '@uiw/react-md-editor'
 import { uploadImage, imageUrl } from '../api'
 
@@ -8,6 +15,8 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [label, setLabel] = useState('')
+  const [extraLabels, setExtraLabels] = useState([])
+  const [extraLabelInput, setExtraLabelInput] = useState('')
   const [images, setImages] = useState([])
   const [previewImg, setPreviewImg] = useState(null)
   const titleTimer = useRef(null)
@@ -18,6 +27,8 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       setTitle(task.title || '')
       setDescription(task.description || '')
       setLabel(task.label || '')
+      setExtraLabels(task.extraLabels || [])
+      setExtraLabelInput('')
       // fetch images list
       fetch(`/api/boards/${boardId}/tasks/${task.id}/images`)
         .then(r => r.json())
@@ -104,6 +115,21 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
     })
   }
 
+  const addExtraLabel = (val) => {
+    const trimmed = val?.trim()
+    if (!trimmed || trimmed === label || extraLabels.includes(trimmed)) return
+    const next = [...extraLabels, trimmed]
+    setExtraLabels(next)
+    setExtraLabelInput('')
+    onUpdate(task.id, { extraLabels: next })
+  }
+
+  const removeExtraLabel = (lbl) => {
+    const next = extraLabels.filter(l => l !== lbl)
+    setExtraLabels(next)
+    onUpdate(task.id, { extraLabels: next })
+  }
+
   if (!task) return null
 
   return (
@@ -129,9 +155,34 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
           value={label}
           options={(labels || []).map(l => ({ value: l }))}
           onChange={val => setLabel(val || '')}
-          placeholder="Add label..."
+          placeholder="Primary label..."
           allowClear
           style={{ width: 160 }}
+          filterOption={(input, option) =>
+            option.value.toLowerCase().includes(input.toLowerCase())
+          }
+        />
+        {extraLabels.map(lbl => (
+          <Tag
+            key={lbl}
+            color={labelColor(lbl)}
+            closable
+            onClose={() => removeExtraLabel(lbl)}
+            style={{ margin: 0 }}
+          >
+            {lbl}
+          </Tag>
+        ))}
+        <AutoComplete
+          value={extraLabelInput}
+          options={(labels || [])
+            .filter(l => l && l !== label && !extraLabels.includes(l))
+            .map(l => ({ value: l }))}
+          onChange={val => setExtraLabelInput(val || '')}
+          onSelect={val => addExtraLabel(val)}
+          onKeyDown={e => { if (e.key === 'Enter') addExtraLabel(extraLabelInput) }}
+          placeholder="Add extra label..."
+          style={{ width: 150 }}
           filterOption={(input, option) =>
             option.value.toLowerCase().includes(input.toLowerCase())
           }

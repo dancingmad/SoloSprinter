@@ -15,6 +15,9 @@ app.use('/api/boards/:boardId/tasks', require('./routes/tasks'));
 app.use('/api/boards/:boardId/states', require('./routes/states'));
 app.use('/api/boards/:boardId/swimlanes', require('./routes/swimlanes'));
 
+// MCP API
+app.use('/api/mcp', require('./routes/mcp'));
+
 // Serve built client in production
 const clientDist = path.join(__dirname, '../client/dist');
 const fs = require('fs');

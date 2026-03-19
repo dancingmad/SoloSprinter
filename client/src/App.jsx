@@ -191,7 +191,7 @@ export default function App() {
           ) : (
             <>
               <FilterBar
-                labels={labels}
+                labels={[...new Set([...labels, ...tasks.flatMap(t => t.extraLabels || [])].filter(Boolean))]}
                 swimlaneMode={swimlaneMode}
                 onToggleSwimlaneMode={setSwimlaneMode}
                 filters={filters}

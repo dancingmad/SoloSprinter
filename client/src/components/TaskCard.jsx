@@ -79,6 +79,9 @@ export default function TaskCard({ task, onClick, compactView }) {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
           {task.label && <Tag color={labelColor(task.label)} style={{ fontSize: 11, margin: 0 }}>{task.label}</Tag>}
+          {(task.extraLabels || []).map(lbl => (
+            <Tag key={lbl} color={labelColor(lbl)} style={{ fontSize: 11, margin: 0 }}>{lbl}</Tag>
+          ))}
         </div>
 
         {total > 0 && (
