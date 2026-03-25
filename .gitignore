@@ -9,6 +9,9 @@ client/dist/
 # Data directory (runtime state — seeded automatically on first start)
 data/
 
+# Local environment config
+.env
+
 # OS / IDE
 .DS_Store
 .idea/
