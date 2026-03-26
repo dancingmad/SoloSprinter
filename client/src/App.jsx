@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { ConfigProvider, theme, Layout, Typography, Spin, message, Button, Tooltip } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import KanbanBoard from './components/KanbanBoard'
+import RoadmapBoard from './components/RoadmapBoard'
 import FilterBar from './components/FilterBar'
 import BoardPicker from './components/BoardPicker'
 import {
@@ -25,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [boardLoading, setBoardLoading] = useState(false)
   const [swimlaneMode, setSwimlaneMode] = useState(true)
+  const [roadmapMode, setRoadmapMode] = useState(false)
   const [compactView, setCompactView] = useState(false)
   const [filters, setFilters] = useState({ label: null, daysOld: null, maxPerColumn: null })
   const [messageApi, contextHolder] = message.useMessage()
@@ -53,6 +55,7 @@ export default function App() {
       setLabels(lb)
       setActiveBoard(board)
       setSwimlaneMode(true)
+      setRoadmapMode(false)
       setFilters({ label: null, daysOld: null, maxPerColumn: null })
     } catch (e) {
       messageApi.error('Failed to load board data')
@@ -198,30 +201,47 @@ export default function App() {
                 onFiltersChange={setFilters}
                 compactView={compactView}
                 onToggleCompactView={setCompactView}
+                roadmapMode={roadmapMode}
+                onToggleRoadmapMode={setRoadmapMode}
               />
-              <div style={{ flex: 1, overflow: 'auto' }}>
-              <KanbanBoard
-                boardId={activeBoard.id}
-                compactView={compactView}
-                tasks={tasks}
-                states={states}
-                swimlanes={swimlanes}
-                labels={labels}
-                swimlaneMode={swimlaneMode}
-                filters={filters}
-                onCreateTask={handleCreateTask}
-                onUpdateTask={handleUpdateTask}
-                onUpdateTaskPriorities={handleUpdateTaskPriorities}
-                onDeleteTask={handleDeleteTask}
-                onAddState={handleAddState}
-                onDeleteState={handleDeleteState}
-                onReorderStates={handleReorderStates}
-                onAddSwimlane={handleAddSwimlane}
-                onDeleteSwimlane={handleDeleteSwimlane}
-                onReorderSwimlanes={handleReorderSwimlanes}
-                onAddLabel={handleAddLabel}
-                onDeleteLabel={handleDeleteLabel}
-              />
+              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {roadmapMode ? (
+                <RoadmapBoard
+                  boardId={activeBoard.id}
+                  tasks={tasks}
+                  states={states}
+                  swimlanes={swimlanes}
+                  labels={labels}
+                  onCreateTask={handleCreateTask}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  onAddLabel={handleAddLabel}
+                  onDeleteLabel={handleDeleteLabel}
+                />
+              ) : (
+                <KanbanBoard
+                  boardId={activeBoard.id}
+                  compactView={compactView}
+                  tasks={tasks}
+                  states={states}
+                  swimlanes={swimlanes}
+                  labels={labels}
+                  swimlaneMode={swimlaneMode}
+                  filters={filters}
+                  onCreateTask={handleCreateTask}
+                  onUpdateTask={handleUpdateTask}
+                  onUpdateTaskPriorities={handleUpdateTaskPriorities}
+                  onDeleteTask={handleDeleteTask}
+                  onAddState={handleAddState}
+                  onDeleteState={handleDeleteState}
+                  onReorderStates={handleReorderStates}
+                  onAddSwimlane={handleAddSwimlane}
+                  onDeleteSwimlane={handleDeleteSwimlane}
+                  onReorderSwimlanes={handleReorderSwimlanes}
+                  onAddLabel={handleAddLabel}
+                  onDeleteLabel={handleDeleteLabel}
+                />
+              )}
               </div>
             </>
           )}

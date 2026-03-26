@@ -119,7 +119,7 @@ function SortableRowHeader({ row, rows, swimlaneMode, NO_LABEL, onDeleteSwimlane
   )
 }
 
-function AddNameModal({ title, open, onOk, onCancel }) {
+function AddNameModal({ title, placeholder = 'Enter name...', open, onOk, onCancel }) {
   const [val, setVal] = useState('')
   return (
     <Modal
@@ -133,7 +133,7 @@ function AddNameModal({ title, open, onOk, onCancel }) {
         value={val}
         onChange={e => setVal(e.target.value)}
         onPressEnter={() => { if (val.trim()) { onOk(val.trim()); setVal('') } }}
-        placeholder="Enter name..."
+        placeholder={placeholder}
         autoFocus
       />
     </Modal>
@@ -156,6 +156,7 @@ export default function KanbanBoard({
   const [activeTask, setActiveTask] = useState(null)
   const [addStateOpen, setAddStateOpen] = useState(false)
   const [addRowOpen, setAddRowOpen] = useState(false)
+  const [pendingTask, setPendingTask] = useState(null)  // fields awaiting a title before creation
 
   const NO_LABEL = '(No Label)'
   const rows = swimlaneMode ? swimlanes : [NO_LABEL, ...labels]
@@ -193,11 +194,16 @@ export default function KanbanBoard({
     return cellTasks
   }
 
-  const handleCellClick = async (state, row) => {
+  const handleCellClick = (state, row) => {
     const fields = swimlaneMode
       ? { state, swimlane: row, label: '' }
       : { state, swimlane: swimlanes[0] || 'Backlog', label: row === NO_LABEL ? '' : row }
-    const task = await onCreateTask(fields)
+    setPendingTask(fields)
+  }
+
+  const handleConfirmNewTask = async (title) => {
+    const task = await onCreateTask({ ...pendingTask, title })
+    setPendingTask(null)
     setSelectedTask(task)
     setModalOpen(true)
   }
@@ -497,6 +503,14 @@ export default function KanbanBoard({
           setAddRowOpen(false)
         }}
         onCancel={() => setAddRowOpen(false)}
+      />
+
+      <AddNameModal
+        title="New task"
+        placeholder="Task title..."
+        open={!!pendingTask}
+        onOk={handleConfirmNewTask}
+        onCancel={() => setPendingTask(null)}
       />
     </>
   )

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider, AutoComplete, Tooltip, message } from 'antd'
-import { DeleteOutlined, CopyOutlined, PlusOutlined } from '@ant-design/icons'
+import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider, AutoComplete, Tooltip, message, Select } from 'antd'
+import { DeleteOutlined, CopyOutlined, CalendarOutlined } from '@ant-design/icons'
 
 const LABEL_COLORS = ['magenta','red','volcano','orange','gold','lime','green','cyan','blue','geekblue','purple']
 function labelColor(label) {
@@ -18,7 +18,8 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
   const [extraLabels, setExtraLabels] = useState([])
   const [extraLabelInput, setExtraLabelInput] = useState('')
   const [images, setImages] = useState([])
-  const [previewImg, setPreviewImg] = useState(null)
+  const [roadmapStart, setRoadmapStart] = useState('')
+  const [roadmapEnd, setRoadmapEnd] = useState('')
   const titleTimer = useRef(null)
   const descTimer = useRef(null)
 
@@ -29,6 +30,10 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       setLabel(task.label || '')
       setExtraLabels(task.extraLabels || [])
       setExtraLabelInput('')
+      const months = task.roadmapMonths || []
+      const sorted = [...months].sort()
+      setRoadmapStart(sorted[0] || '')
+      setRoadmapEnd(sorted[sorted.length - 1] || '')
       // fetch images list
       fetch(`/api/boards/${boardId}/tasks/${task.id}/images`)
         .then(r => r.json())
@@ -129,6 +134,50 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
     setExtraLabels(next)
     onUpdate(task.id, { extraLabels: next })
   }
+
+  // ── roadmap helpers ──
+  const saveRoadmapMonths = (start, end) => {
+    if (!start) { onUpdate(task.id, { roadmapMonths: [] }); return }
+    const realEnd = (!end || end < start) ? start : end
+    const months = []
+    let cur = start
+    for (let i = 0; i < 48; i++) {
+      months.push(cur)
+      if (cur === realEnd) break
+      const [y, m] = cur.split('-').map(Number)
+      const nm = m + 1 > 12 ? 1 : m + 1
+      const ny = m + 1 > 12 ? y + 1 : y
+      cur = `${ny}-${String(nm).padStart(2, '0')}`
+    }
+    onUpdate(task.id, { roadmapMonths: months })
+  }
+
+  const handleRoadmapStart = (val) => {
+    setRoadmapStart(val || '')
+    if (!val) { setRoadmapEnd(''); onUpdate(task.id, { roadmapMonths: [] }); return }
+    const newEnd = roadmapEnd && roadmapEnd >= val ? roadmapEnd : val
+    setRoadmapEnd(newEnd)
+    saveRoadmapMonths(val, newEnd)
+  }
+
+  const handleRoadmapEnd = (val) => {
+    setRoadmapEnd(val || '')
+    if (roadmapStart) saveRoadmapMonths(roadmapStart, val || roadmapStart)
+  }
+
+  // generate month options: current year -1 to +3
+  const monthOptions = (() => {
+    const opts = []
+    const now = new Date()
+    for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 3; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const val = `${y}-${String(m).padStart(2, '0')}`
+        const label = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]} ${y}`
+        opts.push({ value: val, label })
+      }
+    }
+    return opts
+  })()
 
   if (!task) return null
 
@@ -252,6 +301,43 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
           Drop images onto the editor above to attach them.
         </Typography.Text>
       )}
+
+      <Divider orientation="left" style={{ fontSize: 13 }}>
+        <CalendarOutlined /> Roadmap
+      </Divider>
+      <Space wrap style={{ marginBottom: 8 }}>
+        <Typography.Text style={{ fontSize: 13 }}>From</Typography.Text>
+        <Select
+          allowClear
+          placeholder="Start month"
+          style={{ width: 150 }}
+          value={roadmapStart || undefined}
+          onChange={handleRoadmapStart}
+          options={monthOptions}
+          showSearch
+          filterOption={(input, opt) => opt.label.toLowerCase().includes(input.toLowerCase())}
+        />
+        <Typography.Text style={{ fontSize: 13 }}>to</Typography.Text>
+        <Select
+          allowClear
+          placeholder="End month"
+          style={{ width: 150 }}
+          value={roadmapEnd || undefined}
+          disabled={!roadmapStart}
+          onChange={handleRoadmapEnd}
+          options={monthOptions.filter(o => !roadmapStart || o.value >= roadmapStart)}
+          showSearch
+          filterOption={(input, opt) => opt.label.toLowerCase().includes(input.toLowerCase())}
+        />
+        {roadmapStart && (
+          <Button
+            size="small"
+            onClick={() => { setRoadmapStart(''); setRoadmapEnd(''); onUpdate(task.id, { roadmapMonths: [] }) }}
+          >
+            Clear
+          </Button>
+        )}
+      </Space>
 
       <Divider />
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
