@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { ConfigProvider, theme, Layout, Typography, Spin, message, Button, Tooltip } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import KanbanBoard from './components/KanbanBoard'
@@ -39,6 +39,59 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Auto-navigate to board from URL hash once boards are loaded
+  useEffect(() => {
+    if (loading) return
+    const match = window.location.hash.match(/^#board\/(.+)$/)
+    if (match && !activeBoard) {
+      const board = boards.find(b => b.id === decodeURIComponent(match[1]))
+      if (board) loadBoard(board)
+    }
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle browser back/forward via hashchange
+  useEffect(() => {
+    const onHashChange = () => {
+      if (!window.location.hash.startsWith('#board/')) {
+        setActiveBoard(null)
+      }
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  // Poll for task changes every 10 seconds when a board is active
+  const activeBoardIdRef = useRef(null)
+  useEffect(() => {
+    if (!activeBoard) { activeBoardIdRef.current = null; return }
+    activeBoardIdRef.current = activeBoard.id
+    const poll = async () => {
+      if (!activeBoardIdRef.current) return
+      try {
+        const fresh = await fetchTasks(activeBoardIdRef.current)
+        setTasks(prev => {
+          const freshMap = new Map(fresh.map(t => [t.id, t]))
+          const prevMap = new Map(prev.map(t => [t.id, t]))
+          const hasNew = fresh.some(t => !prevMap.has(t.id))
+          const hasDeleted = prev.some(t => !freshMap.has(t.id))
+          const hasUpdated = fresh.some(t => {
+            const e = prevMap.get(t.id)
+            return e && e.updated !== t.updated
+          })
+          if (!hasNew && !hasDeleted && !hasUpdated) return prev
+          return fresh.map(t => {
+            const existing = prevMap.get(t.id)
+            return (existing && existing.updated === t.updated) ? existing : t
+          })
+        })
+      } catch (_) {
+        // silently ignore poll errors
+      }
+    }
+    const interval = setInterval(poll, 5000)
+    return () => clearInterval(interval)
+  }, [activeBoard?.id])
+
   // Load board data when a board is selected
   const loadBoard = useCallback(async (board) => {
     setBoardLoading(true)
@@ -57,6 +110,7 @@ export default function App() {
       setSwimlaneMode(true)
       setRoadmapMode(false)
       setFilters({ label: null, daysOld: null, maxPerColumn: null })
+      window.location.hash = `#board/${encodeURIComponent(board.id)}`
     } catch (e) {
       messageApi.error('Failed to load board data')
     } finally {
@@ -74,7 +128,7 @@ export default function App() {
   const handleDeleteBoard = async (id) => {
     await deleteBoard(id)
     setBoards(prev => prev.filter(b => b.id !== id))
-    if (activeBoard && activeBoard.id === id) setActiveBoard(null)
+    if (activeBoard && activeBoard.id === id) { setActiveBoard(null); window.location.hash = '' }
   }
 
   const handleRenameBoard = async (id, name) => {
@@ -169,7 +223,7 @@ export default function App() {
               <Button
                 type="text"
                 icon={<ArrowLeftOutlined />}
-                onClick={() => setActiveBoard(null)}
+                onClick={() => { setActiveBoard(null); window.location.hash = '' }}
                 style={{ color: '#fff' }}
               />
             </Tooltip>
