@@ -12,6 +12,11 @@ data/
 # Local environment config
 .env
 
+# SSH keys — never commit
+*_key
+*_rsa
+*.pem
+
 # OS / IDE
 .DS_Store
 .idea/
