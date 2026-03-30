@@ -2,6 +2,109 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Modal, Input, Button, Space, Tag, Typography, Image, Popconfirm, Divider, AutoComplete, Tooltip, message, Select } from 'antd'
 import { DeleteOutlined, CopyOutlined, CalendarOutlined } from '@ant-design/icons'
 
+// ── HTML → Markdown conversion (used for rich-text paste) ──────────────────
+
+function convertNode(node) {
+  if (!node) return ''
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent
+  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+  const tag = node.tagName.toLowerCase()
+  if (['style', 'script', 'head', 'meta', 'link'].includes(tag)) return ''
+
+  const children = () => Array.from(node.childNodes).map(n => convertNode(n)).join('')
+
+  switch (tag) {
+    case 'h1': return `# ${children().trim()}\n\n`
+    case 'h2': return `## ${children().trim()}\n\n`
+    case 'h3': return `### ${children().trim()}\n\n`
+    case 'h4': return `#### ${children().trim()}\n\n`
+    case 'h5': return `##### ${children().trim()}\n\n`
+    case 'h6': return `###### ${children().trim()}\n\n`
+    case 'p': { const c = children().trim(); return c ? `${c}\n\n` : '' }
+    case 'br': return '\n'
+    case 'strong':
+    case 'b': { const c = children().trim(); return c ? `**${c}**` : '' }
+    case 'em':
+    case 'i': { const c = children().trim(); return c ? `*${c}*` : '' }
+    case 's':
+    case 'del':
+    case 'strike': { const c = children().trim(); return c ? `~~${c}~~` : '' }
+    case 'code': {
+      const isBlock = node.parentElement?.tagName.toLowerCase() === 'pre'
+      return isBlock ? node.textContent : `\`${node.textContent}\``
+    }
+    case 'pre': {
+      const code = node.querySelector('code')
+      const text = code ? code.textContent : node.textContent
+      const lang = code?.className?.match(/language-(\w+)/)?.[1] || ''
+      return `\`\`\`${lang}\n${text}\n\`\`\`\n\n`
+    }
+    case 'a': {
+      const href = node.getAttribute('href') || ''
+      const c = children().trim()
+      if (!href || href === c) return c
+      return `[${c}](${href})`
+    }
+    case 'img': {
+      const src = node.getAttribute('src') || ''
+      const alt = node.getAttribute('alt') || ''
+      return `![${alt}](${src})`
+    }
+    case 'ul': {
+      const items = Array.from(node.children)
+        .filter(el => el.tagName.toLowerCase() === 'li')
+        .map(li => `- ${convertNode(li).trim()}`)
+        .join('\n')
+      return items + '\n\n'
+    }
+    case 'ol': {
+      const items = Array.from(node.children)
+        .filter(el => el.tagName.toLowerCase() === 'li')
+        .map((li, i) => `${i + 1}. ${convertNode(li).trim()}`)
+        .join('\n')
+      return items + '\n\n'
+    }
+    case 'li': return children()
+    case 'blockquote': {
+      const c = children().trim()
+      return c.split('\n').map(l => `> ${l}`).join('\n') + '\n\n'
+    }
+    case 'hr': return '---\n\n'
+    case 'table': return convertTable(node) + '\n\n'
+    case 'thead': case 'tbody': case 'tfoot': case 'caption':
+    case 'tr': case 'th': case 'td': return '' // handled by convertTable
+    default: return children()
+  }
+}
+
+function convertTable(table) {
+  const rows = Array.from(table.querySelectorAll('tr'))
+  if (!rows.length) return ''
+  const data = rows.map(row =>
+    Array.from(row.querySelectorAll('th, td')).map(cell =>
+      cell.textContent.trim().replace(/\|/g, '\\|').replace(/\s+/g, ' ')
+    )
+  )
+  const colCount = Math.max(...data.map(r => r.length))
+  const pad = row => { const r = [...row]; while (r.length < colCount) r.push(''); return r }
+  const lines = [
+    '| ' + pad(data[0]).join(' | ') + ' |',
+    '| ' + Array(colCount).fill('---').join(' | ') + ' |',
+    ...data.slice(1).map(row => '| ' + pad(row).join(' | ') + ' |'),
+  ]
+  return lines.join('\n')
+}
+
+function htmlToMarkdown(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return convertNode(doc.body).replace(/\n{3,}/g, '\n\n').trim()
+}
+
+const MEANINGFUL_HTML = /<(table|h[1-6]|ul|ol|strong|b|em|i|del|s|strike|blockquote|code|pre)\b/i
+
+// ──────────────────────────────────────────────────────────────────────────
+
 const LABEL_COLORS = ['magenta','red','volcano','orange','gold','lime','green','cyan','blue','geekblue','purple']
 function labelColor(label) {
   let hash = 0
@@ -22,6 +125,29 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
   const [roadmapEnd, setRoadmapEnd] = useState('')
   const titleTimer = useRef(null)
   const descTimer = useRef(null)
+  const editorWrapperRef = useRef(null)
+
+  // Intercept paste events on the markdown editor and convert HTML → markdown
+  useEffect(() => {
+    if (!open) return
+    const wrapper = editorWrapperRef.current
+    if (!wrapper) return
+
+    const handlePaste = (e) => {
+      const types = Array.from(e.clipboardData?.types || [])
+      if (!types.includes('text/html')) return
+      const html = e.clipboardData.getData('text/html')
+      if (!MEANINGFUL_HTML.test(html)) return
+      const markdown = htmlToMarkdown(html)
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      document.execCommand('insertText', false, markdown)
+    }
+
+    // capture=true so we intercept before CodeMirror handles the event
+    wrapper.addEventListener('paste', handlePaste, true)
+    return () => wrapper.removeEventListener('paste', handlePaste, true)
+  }, [open])
 
   useEffect(() => {
     if (task) {
@@ -245,6 +371,7 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       </Space>
 
       <div
+        ref={editorWrapperRef}
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
         style={{ border: '1px dashed #d9d9d9', borderRadius: 6, padding: 4, marginBottom: 12 }}
