@@ -5,7 +5,15 @@ import TaskModal from './TaskModal'
 
 const ROW_HEADER_WIDTH = 140
 const TASK_ROW_HEIGHT = 38
+const TASK_ROW_HEIGHT_EXPANDED = 58
 const HEADER_ROW_HEIGHT = 30
+
+function descriptionPreview(description) {
+  if (!description) return ''
+  const line = description.split('\n').find(l => l.trim() && !/^\s*[-*#>]/.test(l) && !/\[[ x]\]/i.test(l))
+  if (!line) return ''
+  return line.trim().slice(0, 120)
+}
 
 // Quarter palette: [bg, border, text] per quarter index (0=Q1, 1=Q2, 2=Q3, 3=Q4)
 const Q_PALETTE = [
@@ -84,6 +92,7 @@ export default function RoadmapBoard({
   boardId, tasks, swimlanes, labels, states,
   onCreateTask, onUpdateTask, onDeleteTask,
   onAddLabel, onDeleteLabel,
+  compactView,
 }) {
   const [viewStart, setViewStart]       = useState(defaultViewStart)
   const [selectedTask, setSelectedTask] = useState(null)
@@ -329,6 +338,8 @@ export default function RoadmapBoard({
             const months = getEffectiveMonths(item.task)
             const range  = taskColRange(months, visibleMonths)
             const isDragging = draggingRef.current?.taskId === item.task.id
+            const taskRowH = compactView ? TASK_ROW_HEIGHT : TASK_ROW_HEIGHT_EXPANDED
+            const desc = compactView ? '' : descriptionPreview(item.task.description)
 
             return (
               <React.Fragment key={`task-${item.task.id}`}>
@@ -338,7 +349,7 @@ export default function RoadmapBoard({
                   background: '#fafafa',
                   borderRight: '1px solid #e8e8e8',
                   borderBottom: '1px solid #f0f0f0',
-                  height: TASK_ROW_HEIGHT,
+                  height: taskRowH,
                 }} />
 
                 {/* Month background cells */}
@@ -352,7 +363,7 @@ export default function RoadmapBoard({
                       background: p.bg,
                       borderBottom: '1px solid #f0f0f0',
                       borderRight: `1px solid ${isQuarterEnd ? p.border : '#f0f0f0'}`,
-                      height: TASK_ROW_HEIGHT,
+                      height: taskRowH,
                       opacity: 0.5,
                     }} />
                   )
@@ -365,7 +376,7 @@ export default function RoadmapBoard({
                     gridRow: item.gridRow,
                     zIndex: 1,
                     padding: '5px 3px',
-                    height: TASK_ROW_HEIGHT,
+                    height: taskRowH,
                     display: 'flex',
                     alignItems: 'center',
                     position: 'relative',
@@ -373,23 +384,20 @@ export default function RoadmapBoard({
                     <div
                       style={{
                         flex: 1,
-                        height: 26,
-                        background: isDragging
-                          ? Q_PALETTE[quarterIndex(months[0])].bar
-                          : Q_PALETTE[quarterIndex(months[0])].bar,
+                        height: compactView ? 26 : 46,
+                        background: Q_PALETTE[quarterIndex(months[0])].bar,
                         opacity: isDragging ? 0.75 : 1,
                         borderRadius: range.extendsBefore ? '0 4px 4px 0' : range.extendsAfter ? '4px 0 0 4px' : 4,
                         borderLeft:  range.extendsBefore ? '3px solid rgba(0,0,0,0.25)' : undefined,
-                        display: 'flex', alignItems: 'center',
-                        padding: '0 22px 0 8px',
+                        display: 'flex',
+                        flexDirection: compactView ? 'row' : 'column',
+                        alignItems: compactView ? 'center' : 'flex-start',
+                        justifyContent: compactView ? undefined : 'center',
+                        padding: compactView ? '0 22px 0 8px' : '4px 22px 4px 8px',
                         color: '#fff',
-                        fontSize: 12,
-                        fontWeight: 500,
                         cursor: 'grab',
                         userSelect: 'none',
                         overflow: 'hidden',
-                        whiteSpace: 'nowrap',
-                        textOverflow: 'ellipsis',
                         position: 'relative',
                         boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
                       }}
@@ -404,7 +412,29 @@ export default function RoadmapBoard({
                         setModalOpen(true)
                       }}
                     >
-                      {item.task.title || '(untitled)'}
+                      <div style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        width: '100%',
+                      }}>
+                        {item.task.title || '(untitled)'}
+                      </div>
+                      {!compactView && desc && (
+                        <div style={{
+                          fontSize: 11,
+                          opacity: 0.85,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          width: '100%',
+                          marginTop: 2,
+                        }}>
+                          {desc}
+                        </div>
+                      )}
 
                       {/* Right-side resize handle */}
                       <div

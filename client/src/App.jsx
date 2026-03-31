@@ -256,7 +256,7 @@ export default function App() {
                 compactView={compactView}
                 onToggleCompactView={setCompactView}
                 roadmapMode={roadmapMode}
-                onToggleRoadmapMode={setRoadmapMode}
+                onToggleRoadmapMode={(val) => { setRoadmapMode(val); if (val) setCompactView(true) }}
               />
               <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
               {roadmapMode ? (
@@ -266,6 +266,7 @@ export default function App() {
                   states={states}
                   swimlanes={swimlanes}
                   labels={labels}
+                  compactView={compactView}
                   onCreateTask={handleCreateTask}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
