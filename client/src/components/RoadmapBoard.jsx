@@ -460,23 +460,7 @@ export default function RoadmapBoard({
           }
 
           if (item.type === 'add-task') {
-            return (
-              <div key={`add-${item.swimlane}`} style={{
-                gridColumn: '1 / 14',
-                gridRow: item.gridRow,
-                display: 'flex', alignItems: 'center',
-                height: 28,
-                paddingLeft: 10,
-                color: '#bbb',
-                fontSize: 12,
-                cursor: 'pointer',
-                borderBottom: '1px solid #f0f0f0',
-              }}
-                onClick={() => handleAddTask(item.swimlane)}
-              >
-                + add to roadmap
-              </div>
-            )
+            return null
           }
 
           return null
