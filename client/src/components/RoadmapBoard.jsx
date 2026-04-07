@@ -224,7 +224,7 @@ export default function RoadmapBoard({
       for (const task of slTasks) {
         items.push({ type: 'task', task, gridRow: row++ })
       }
-      items.push({ type: 'add-task', swimlane, gridRow: row++ })
+      // add-task row removed; no row allocated
     }
     return items
   }, [swimlanes, tasks, getEffectiveMonths])
@@ -235,6 +235,7 @@ export default function RoadmapBoard({
 
   return (
     <>
+      <style>{`@keyframes fadeInBar { from { opacity: 0 } to { opacity: 1 } }`}</style>
       {/* Navigation bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
         <Button
@@ -340,6 +341,8 @@ export default function RoadmapBoard({
             const isDragging = draggingRef.current?.taskId === item.task.id
             const taskRowH = compactView ? TASK_ROW_HEIGHT : TASK_ROW_HEIGHT_EXPANDED
             const desc = compactView ? '' : descriptionPreview(item.task.description)
+            const inView = range !== null
+            const rowH = inView ? taskRowH : 0
 
             return (
               <React.Fragment key={`task-${item.task.id}`}>
@@ -349,7 +352,10 @@ export default function RoadmapBoard({
                   background: '#fafafa',
                   borderRight: '1px solid #e8e8e8',
                   borderBottom: '1px solid #f0f0f0',
-                  height: taskRowH,
+                  height: rowH,
+                  overflow: 'hidden',
+                  opacity: inView ? 1 : 0,
+                  transition: 'height 300ms ease, opacity 300ms ease',
                 }} />
 
                 {/* Month background cells */}
@@ -363,8 +369,10 @@ export default function RoadmapBoard({
                       background: p.bg,
                       borderBottom: '1px solid #f0f0f0',
                       borderRight: `1px solid ${isQuarterEnd ? p.border : '#f0f0f0'}`,
-                      height: taskRowH,
-                      opacity: 0.5,
+                      height: rowH,
+                      overflow: 'hidden',
+                      opacity: inView ? 0.5 : 0,
+                      transition: 'height 300ms ease, opacity 300ms ease',
                     }} />
                   )
                 })}
@@ -380,6 +388,7 @@ export default function RoadmapBoard({
                     display: 'flex',
                     alignItems: 'center',
                     position: 'relative',
+                    animation: 'fadeInBar 300ms ease',
                   }}>
                     <div
                       style={{

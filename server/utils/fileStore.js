@@ -161,6 +161,9 @@ function createTask(boardId, fields) {
     updated: now,
     description: fields.description || ''
   };
+  if (fields.roadmapMonths && fields.roadmapMonths.length > 0) {
+    taskData.roadmapMonths = fields.roadmapMonths;
+  }
   writeTask(boardId, id, taskData);
   appendHistory(boardId, id, { action: 'created', state: taskData.state, swimlane: taskData.swimlane, timestamp: now });
   return { id, ...taskData };
