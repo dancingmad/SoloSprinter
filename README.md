@@ -2,58 +2,171 @@
 
 ## Summary
 
-This tool is intended for self management, but following the kanban principles of minimising waste by reducing work in progress. 
-It allows to create tasks with labels to easily analyse what time was spent on and use it for further purposes like time reporting.
-The tool is only intended to run locally and not for collaboration. It provides all data via API so synchronising it with collaboration tools like Jira is possible.
-It follows the UI features of tools like Jira, Trello and Wekan, allowing to quickly edit the description, mark subtasks as done and move tasks from one state to the next.
+SoloSprinter is a personal Kanban board built around the principle of minimising waste by reducing work in progress. It lets you create and manage tasks with labels so you can easily analyse where time was spent — useful for time reporting or retrospectives.
+
+The tool is designed to run locally without a database. All data is stored as plain files on disk, making backups trivial and enabling sync with collaboration tools like Jira via the REST API or MCP server. It follows the UI conventions of tools like Jira, Trello and Wekan — quick inline editing, drag-and-drop, markdown descriptions with subtasks, and image attachments.
+
+---
 
 ## Setup
 
-Download the tool, run npm dev, it will build the client and run the server serving the client. 
-It will expose both UI and API via a configurable port. A data folder will be created, which source location can be adjusted, for example using the users local folders for easy backup of the data. 
-Required tools are: node and npm
+```bash
+git clone <repo>
+cd SoloSprinter
+npm install
+npm run dev        # starts both the Express server (port 3001) and the Vite dev server (port 5173)
+```
 
-## Core features
+For production:
 
-There is no login, since it's single user only. All tasks are loaded from the data directory. Each task is stored as a folder. Tasks are stored as .md files, with images attached to the task also stored in the folder. Each task can have subtask like a todo list, but they are managed in the .md file using bracket formatting in a structured way.
-Also the task status, label, basic timestamps like created and last udpate are also stored in the .md file. 
-A history to make it easier for an external tool via API to understand how the task was handled is stored in a separate file as json, it's not needed to be readable by the user.
+```bash
+npm run build      # builds the React client into client/dist/
+npm start          # serves UI + API from port 3001
+```
 
-## UI
+**Requirements:** Node.js and npm. No database needed.
 
-### States and Swimlanes
+The data directory is created automatically on first start. Its location defaults to `./data/` and can be overridden with the `DATA_DIR` environment variable — useful for pointing it at a folder that is already backed up (e.g. a synced cloud folder).
 
-The whole UI is based on a Kanban board, it will show the states as columns and the swimlanes as rows. 
-To minimise the UI creating tasks is done by clicking in a cell in the board. The task is created with empty title and description. 
-Once the title has been edited, the task will be saved. Any changes to the title or description will be updated automatically, there is no save button needed.  
-The task will immediately show as a box in the cell and has the state of the column and the swimlane of the row assigned to the task. 
-If the label toggle was enabled it will use the label assigned to the row.
+---
 
-It should be possible to add new columns, which are states and remove them if there are no tasks in that column. The same for rows, which are swimlanes. 
-There is a + button next to the coluns and below the rows to add and a - button to delete rows or columns (only if empty).  
+## Core Features
 
-There is a minimum of three columns, starting with the names "Todo", "Work in Progress" and "Done". And of course starting with a single row, the "Backlog" row.
-There is a toggle to switch the swimlane view showing the tasks per assigned swimlane or showing the tasks per assigned label. 
-If a task is moved from one row to another, it either gets assigned a different swimlane if swimlane mode is enabled, or it gets assigned the lable that is assigned to the row it is dragged into. There is a filter option to hide all tasks per label or with a date filter as well as limiting the number of tasks shown per column (to avoid tasks piling up in the Done column, only recent tasks are relevant to be shown).
+### Multiple Boards
 
+The board picker lets you create, rename and delete boards. Each board has its own set of states (columns), swimlanes (rows), labels and tasks. Boards are independent — you might use one per project, team or time horizon.
 
-### Task
+### Kanban Board
 
-Can be created, edited and via drag and drop moved between states, swimlanes and labels as explained in the states and swimlanes section. 
-Each task has an MD description that can be edited when clicking on the task. The MD view is rendered when the task is not in edit mode. 100% of the width of the cell is used. 
-It is easily possible to add subtasks which are added as MD text using brackets [] to indicate here is a subtask which can be flagged as done by marking it with an [x].
-Its also possible to drag and drop an image into a task to add some relevant images. The should be displayed inline in the task, but can be expanded full size when clicking on them. 
+The default view shows states as columns and swimlanes (or labels) as rows. Tasks can be created by clicking any empty cell and are immediately saved once a title is entered — no save button needed. Drag and drop moves tasks between columns and rows, updating state, swimlane or label automatically.
 
-### API
+Columns and rows can be added and removed via `+` / `−` buttons. A minimum of three columns (`Todo`, `Work in Progress`, `Done`) and one row (`Backlog`) is enforced. Columns and rows can also be reordered by drag and drop.
 
-All tasks are exposed via API to be editable via third party tools or an MCP. The available states/columns and rows/swimlanes/labels, are also avaialbe via API to be added or removed. 
+There is a toggle to switch between **swimlane mode** and **label mode**:
+- **Swimlane mode** — rows represent swimlanes; dragging between rows reassigns the swimlane.
+- **Label mode** — rows represent labels; dragging between rows reassigns the label.
+
+### Roadmap View
+
+The roadmap view shows tasks on a timeline grouped by swimlane. Each task is rendered as a horizontal bar spanning the months assigned to it. The timeline is navigable by quarter, with colour-coded quarters for quick orientation. Tasks can be clicked to open the full editor. Roadmap month spans are set per task in the task detail view and are stored as an array of `YYYY-MM` strings.
+
+### List View
+
+The list view shows all tasks in a flat, sortable table grouped by swimlane. It provides a quick overview across states without the spatial layout of the Kanban board. Tasks can be opened and edited inline from the list.
+
+### Tasks
+
+Each task has:
+- **Title** — edited inline on the card or in the detail modal
+- **Markdown description** — full MD editor with live preview; supports subtask checkboxes (`[ ]` / `[x]`), code blocks, tables etc.
+- **State, swimlane, label, priority** — managed via drag-and-drop or the detail modal
+- **Roadmap months** — optional month range for the roadmap view
+- **Images** — drag and drop images directly onto a task; they are displayed inline and can be expanded to full size
+
+### Filtering
+
+The filter bar lets you:
+- Filter by label
+- Filter by date (hide tasks older than N days)
+- Limit the number of tasks shown per column (useful to keep the Done column from overflowing)
+
+### Simple Collaboration via Automatic Refresh
+
+The UI polls the server every 5 seconds and silently refreshes data if anything has changed. This makes it practical for lightweight collaboration scenarios — for example, running SoloSprinter on a shared server where multiple people have the board open.
+
+For a stricter read-only setup, the server can be started in **read-only mode**, which disables all write operations:
+
+```bash
+node server/index.js --read-only
+# or
+READ_ONLY=true npm start
+```
+
+This is useful for displaying a live mirror of a board (e.g. on a shared screen or dashboard) without risk of accidental edits.
+
+---
+
+## AI Integration
+
+### MCP Server
+
+SoloSprinter exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server at `/api/mcp`. Any MCP-compatible client (Claude Desktop, Cursor, etc.) can connect to it and read/create/update/delete boards and tasks using natural language.
+
+Add it to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "solosprinter": {
+      "url": "http://localhost:3001/api/mcp"
+    }
+  }
+}
+```
+
+### CLI Skill (`ss`)
+
+A command-line interface lives in `cli/ss.js`. It is also packaged as a **pi skill** (`cli/SKILL.md`) so that AI agents running inside [pi](https://github.com/mariozechner/pi) can operate SoloSprinter boards directly.
+
+**Setup:**
+
+```bash
+cd cli && npm install
+node cli/ss.js --help
+```
+
+**Examples:**
+
+```bash
+# List all boards
+node cli/ss.js boards list
+
+# Create a task
+node cli/ss.js tasks create <boardId> --title "Fix login bug" --state "Todo" --label "bug"
+
+# Move a task to Done
+node cli/ss.js tasks update <boardId> <taskId> --state "Done"
+
+# Sync from local to a remote instance
+node cli/ss.js sync local prod --dry-run
+node cli/ss.js sync local prod
+```
+
+The CLI supports multiple named **instances** (e.g. `local`, `prod`, `staging`) stored in `~/.solosprinter-cli.json`, and a `--json` flag for scripted / agent use. See `cli/SKILL.md` for the full command reference.
+
+---
+
+## Data Storage
+
+No database. All data lives in `data/` (or `$DATA_DIR`):
+
+| Path | Contents |
+|------|----------|
+| `data/boards.json` | List of boards `[{ id, name }]` |
+| `data/<boardId>/config.json` | Board config: `states`, `swimlanes`, `labels` arrays |
+| `data/<boardId>/<taskId>/task.md` | Task as Markdown with YAML front matter (title, state, swimlane, label, priority, roadmapMonths, created, updated) |
+| `data/<boardId>/<taskId>/history.json` | Append-only log of state-change events |
+| `data/<boardId>/<taskId>/img_*` | Images attached to the task |
+
+---
+
+## API
+
+All data is accessible via a REST API under `/api`. This makes it straightforward to sync with external tools like Jira or build custom integrations.
+
+| Resource | Endpoints |
+|----------|-----------|
+| Boards | `GET/POST /api/boards`, `PUT/DELETE /api/boards/:id` |
+| Tasks | `GET/POST /api/boards/:boardId/tasks`, `GET/PUT/DELETE /api/boards/:boardId/tasks/:taskId` |
+| States | `GET/POST /api/boards/:boardId/states`, `DELETE/PUT` for remove/reorder |
+| Swimlanes & Labels | `GET/POST /api/boards/:boardId/swimlanes`, plus label sub-routes |
+
+---
 
 ## Tech Stack
 
-### Key Technology Decisions
-
 | Need | Decision |
-|---|---|
+|------|----------|
 | Server | Express.js |
 | Frontend framework | React (via Vite) |
 | UI component library | Ant Design (AntD) |
@@ -61,30 +174,37 @@ All tasks are exposed via API to be editable via third party tools or an MCP. Th
 | Markdown editor | @uiw/react-md-editor |
 | MD file parsing | gray-matter + marked |
 | Image upload | HTML5 File API + multer (Express) |
+| MCP server | @modelcontextprotocol/sdk |
 
-### Project Structure
+## Project Structure
 
 ```
 SoloSprinter/
 ├── server/
-│   ├── index.js          # Express app entry point
+│   ├── index.js              # Express entry point (supports --read-only flag)
 │   ├── routes/
-│   │   ├── tasks.js      # CRUD for tasks
-│   │   ├── states.js     # Columns (Todo, WIP, Done, ...)
-│   │   └── swimlanes.js  # Rows / labels
+│   │   ├── boards.js         # Board CRUD
+│   │   ├── tasks.js          # Task CRUD + image upload
+│   │   ├── states.js         # Column management
+│   │   ├── swimlanes.js      # Row + label management
+│   │   └── mcp.js            # MCP server endpoint
 │   └── utils/
-│       ├── fileStore.js  # Read/write .md files & JSON history
-│       └── mdParser.js   # Parse subtasks, metadata from .md
-├── client/               # Vite + React app
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── KanbanBoard.jsx   # Main board (columns × rows grid)
-│   │   │   ├── TaskCard.jsx      # Individual task box
-│   │   │   ├── TaskModal.jsx     # Task detail / edit view (MD editor)
-│   │   │   └── FilterBar.jsx     # Label/date filters + toggle
-│   │   └── App.jsx
-│   └── package.json
-├── data/                 # Task folders (auto-created at runtime)
-└── package.json          # Root: runs server + serves built client
+│       └── fileStore.js      # All file I/O (single source of truth)
+├── client/
+│   └── src/
+│       ├── App.jsx            # Board selection, all state, polling loop
+│       ├── api.js             # All fetch calls
+│       └── components/
+│           ├── BoardPicker.jsx    # Board list / create / rename / delete
+│           ├── FilterBar.jsx      # Filters + view mode toggles
+│           ├── KanbanBoard.jsx    # Columns × rows grid with drag-and-drop
+│           ├── RoadmapBoard.jsx   # Timeline view by quarter / month
+│           ├── ListView.jsx       # Flat table view grouped by swimlane
+│           ├── TaskCard.jsx       # Task box on the board
+│           └── TaskModal.jsx      # Task detail / MD editor
+├── cli/
+│   ├── ss.js                 # CLI tool (multi-instance, --json flag)
+│   └── SKILL.md              # pi agent skill definition
+├── data/                     # Auto-created at runtime
+└── package.json
 ```
-
