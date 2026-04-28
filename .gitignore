@@ -24,3 +24,4 @@ data/
 /data_backup/
 /remoteBoard/
 /remoteData/
+/run-remote-local.sh

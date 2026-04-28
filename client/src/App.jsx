@@ -3,6 +3,7 @@ import { ConfigProvider, theme, Layout, Typography, Spin, message, Button, Toolt
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import KanbanBoard from './components/KanbanBoard'
 import RoadmapBoard from './components/RoadmapBoard'
+import ListView from './components/ListView'
 import FilterBar from './components/FilterBar'
 import BoardPicker from './components/BoardPicker'
 import {
@@ -26,7 +27,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [boardLoading, setBoardLoading] = useState(false)
   const [swimlaneMode, setSwimlaneMode] = useState(true)
-  const [roadmapMode, setRoadmapMode] = useState(false)
+  const [viewMode, setViewMode] = useState('kanban')
   const [compactView, setCompactView] = useState(false)
   const [filters, setFilters] = useState({ label: null, daysOld: null, maxPerColumn: null })
   const [messageApi, contextHolder] = message.useMessage()
@@ -108,7 +109,7 @@ export default function App() {
       setLabels(lb)
       setActiveBoard(board)
       setSwimlaneMode(true)
-      setRoadmapMode(false)
+      setViewMode('kanban')
       setFilters({ label: null, daysOld: null, maxPerColumn: null })
       window.location.hash = `#board/${encodeURIComponent(board.id)}`
     } catch (e) {
@@ -255,11 +256,11 @@ export default function App() {
                 onFiltersChange={setFilters}
                 compactView={compactView}
                 onToggleCompactView={setCompactView}
-                roadmapMode={roadmapMode}
-                onToggleRoadmapMode={(val) => { setRoadmapMode(val); if (val) setCompactView(true) }}
+                viewMode={viewMode}
+                onViewModeChange={(val) => { setViewMode(val); if (val === 'roadmap') setCompactView(true) }}
               />
               <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-              {roadmapMode ? (
+              {viewMode === 'roadmap' ? (
                 <RoadmapBoard
                   boardId={activeBoard.id}
                   tasks={tasks}
@@ -268,6 +269,19 @@ export default function App() {
                   labels={labels}
                   compactView={compactView}
                   onCreateTask={handleCreateTask}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  onAddLabel={handleAddLabel}
+                  onDeleteLabel={handleDeleteLabel}
+                />
+              ) : viewMode === 'list' ? (
+                <ListView
+                  boardId={activeBoard.id}
+                  tasks={tasks}
+                  states={states}
+                  swimlanes={swimlanes}
+                  labels={labels}
+                  filters={filters}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
                   onAddLabel={handleAddLabel}

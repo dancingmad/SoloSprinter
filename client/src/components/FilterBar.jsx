@@ -1,6 +1,6 @@
 import React from 'react'
 import { Row, Col, Switch, Select, InputNumber, Space, Typography, Segmented } from 'antd'
-import { TableOutlined, CalendarOutlined } from '@ant-design/icons'
+import { TableOutlined, CalendarOutlined, UnorderedListOutlined } from '@ant-design/icons'
 
 const DAYS_OPTIONS = [
   { label: 'Today', value: 1 },
@@ -9,16 +9,17 @@ const DAYS_OPTIONS = [
   { label: 'Last 90 days', value: 90 },
 ]
 
-export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, filters, onFiltersChange, compactView, onToggleCompactView, roadmapMode, onToggleRoadmapMode }) {
+export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, filters, onFiltersChange, compactView, onToggleCompactView, viewMode, onViewModeChange }) {
   return (
     <Row gutter={16} align="middle" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
       <Col>
         <Segmented
-          value={roadmapMode ? 'roadmap' : 'kanban'}
-          onChange={val => onToggleRoadmapMode(val === 'roadmap')}
+          value={viewMode}
+          onChange={onViewModeChange}
           options={[
             { label: 'Kanban', value: 'kanban', icon: <TableOutlined /> },
             { label: 'Roadmap', value: 'roadmap', icon: <CalendarOutlined /> },
+            { label: 'List', value: 'list', icon: <UnorderedListOutlined /> },
           ]}
         />
       </Col>

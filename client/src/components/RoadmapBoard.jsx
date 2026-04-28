@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Button, Typography, Modal, Input } from 'antd'
-import { LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
 import TaskModal from './TaskModal'
 
 const ROW_HEADER_WIDTH = 140
@@ -100,6 +100,15 @@ export default function RoadmapBoard({
   const [dragPreview, setDragPreview]   = useState(null)  // { taskId, months }
   const [pendingAdd, setPendingAdd]     = useState(null)  // { swimlane } awaiting title
   const [pendingTitle, setPendingTitle] = useState('')
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullscreen) setIsFullscreen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isFullscreen])
 
   const draggingRef    = useRef(null)
   const dragPreviewRef = useRef(null)
@@ -216,25 +225,55 @@ export default function RoadmapBoard({
   const layoutItems = useMemo(() => {
     const items = []
     let row = 3  // rows 1+2 are sticky headers
-    for (const swimlane of swimlanes) {
-      const slTasks = tasks.filter(t =>
-        t.swimlane === swimlane && (getEffectiveMonths(t).length > 0)
-      )
-      items.push({ type: 'swimlane-header', swimlane, gridRow: row++ })
-      for (const task of slTasks) {
-        items.push({ type: 'task', task, gridRow: row++ })
+
+    if (compactView) {
+      // compact: group by swimlane
+      for (const swimlane of swimlanes) {
+        const slTasks = tasks.filter(t =>
+          t.swimlane === swimlane && (getEffectiveMonths(t).length > 0)
+        )
+        items.push({ type: 'swimlane-header', swimlane, gridRow: row++ })
+        for (const task of slTasks) {
+          items.push({ type: 'task', task, gridRow: row++ })
+        }
       }
-      // add-task row removed; no row allocated
+    } else {
+      // non-compact: group by label
+      for (const label of labels) {
+        const labelTasks = tasks.filter(t =>
+          t.label === label && (getEffectiveMonths(t).length > 0)
+        )
+        if (labelTasks.length === 0) continue
+        items.push({ type: 'label-header', label, gridRow: row++ })
+        for (const task of labelTasks) {
+          items.push({ type: 'task', task, gridRow: row++ })
+        }
+      }
+      // tasks with no label
+      const noLabelTasks = tasks.filter(t =>
+        !t.label && (getEffectiveMonths(t).length > 0)
+      )
+      if (noLabelTasks.length > 0) {
+        items.push({ type: 'label-header', label: '(No Label)', gridRow: row++ })
+        for (const task of noLabelTasks) {
+          items.push({ type: 'task', task, gridRow: row++ })
+        }
+      }
     }
+
     return items
-  }, [swimlanes, tasks, getEffectiveMonths])
+  }, [swimlanes, labels, tasks, getEffectiveMonths, compactView])
 
   // ── render ─────────────────────────────────────────────────────────────────
 
   const headerRange = `${quarterLabel(visibleMonths[0])} – ${quarterLabel(visibleMonths[9])}`
 
   return (
-    <>
+    <div style={isFullscreen ? {
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      zIndex: 1000, background: '#fff', padding: 16,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    } : { display: 'flex', flexDirection: 'column', height: '100%' }}>
       <style>{`@keyframes fadeInBar { from { opacity: 0 } to { opacity: 1 } }`}</style>
       {/* Navigation bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -253,6 +292,14 @@ export default function RoadmapBoard({
           onClick={() => setViewStart(v => addMonths(v, 3))}
         >
           Next quarter
+        </Button>
+        <div style={{ flex: 1 }} />
+        <Button
+          icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+          onClick={() => setIsFullscreen(v => !v)}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         </Button>
       </div>
 
@@ -331,6 +378,34 @@ export default function RoadmapBoard({
                 display: 'flex', alignItems: 'center',
               }}>
                 {item.swimlane}
+              </div>
+            )
+          }
+
+          if (item.type === 'label-header') {
+            return (
+              <div key={`lh-${item.label}`} style={{
+                gridColumn: '1 / 14',
+                gridRow: item.gridRow,
+                background: '#e6f4ff',
+                borderBottom: '1px solid #91caff',
+                borderTop: '1px solid #91caff',
+                padding: '0 10px',
+                fontWeight: 600,
+                fontSize: 13,
+                color: '#0958d9',
+                height: TASK_ROW_HEIGHT,
+                display: 'flex', alignItems: 'center',
+                gap: 6,
+              }}>
+                <span style={{
+                  display: 'inline-block',
+                  width: 8, height: 8,
+                  borderRadius: '50%',
+                  background: '#4096ff',
+                  flexShrink: 0,
+                }} />
+                {item.label}
               </div>
             )
           }
@@ -431,17 +506,35 @@ export default function RoadmapBoard({
                       }}>
                         {item.task.title || '(untitled)'}
                       </div>
-                      {!compactView && desc && (
+                      {!compactView && (
                         <div style={{
-                          fontSize: 11,
-                          opacity: 0.85,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          width: '100%',
-                          marginTop: 2,
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          width: '100%', marginTop: 2, overflow: 'hidden',
                         }}>
-                          {desc}
+                          {desc && (
+                            <div style={{
+                              fontSize: 11,
+                              opacity: 0.85,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              flex: 1,
+                            }}>
+                              {desc}
+                            </div>
+                          )}
+                          {item.task.swimlane && (
+                            <div style={{
+                              fontSize: 10,
+                              background: 'rgba(255,255,255,0.25)',
+                              borderRadius: 3,
+                              padding: '1px 5px',
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
+                            }}>
+                              {item.task.swimlane}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -505,7 +598,7 @@ export default function RoadmapBoard({
           autoFocus
         />
       </Modal>
-    </>
+    </div>
   )
 }
 
