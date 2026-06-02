@@ -149,7 +149,8 @@ export default function KanbanBoard({
   onAddState, onDeleteState, onReorderStates,
   onAddSwimlane, onDeleteSwimlane, onReorderSwimlanes,
   onAddLabel, onDeleteLabel,
-  onUpdateTaskPriorities
+  onUpdateTaskPriorities,
+  selectedTaskIds, onToggleTaskSelection,
 }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -161,9 +162,12 @@ export default function KanbanBoard({
   // Apply filters first — rows in label mode are derived from filtered tasks
   const filteredTasks = useMemo(() => {
     let result = [...tasks]
-    if (filters.label) result = result.filter(t =>
-      t.label === filters.label || (t.extraLabels || []).includes(filters.label)
-    )
+    if (filters.labelsInclude && filters.labelsInclude.length > 0) {
+      result = result.filter(t => {
+        const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
+        return filters.labelsInclude.some(l => all.includes(l))
+      })
+    }
     if (filters.daysOld) {
       const cutoff = new Date()
       cutoff.setHours(0, 0, 0, 0)
@@ -435,6 +439,8 @@ export default function KanbanBoard({
                                 task={task}
                                 compactView={compactView}
                                 swimlaneMode={swimlaneMode}
+                                selected={selectedTaskIds?.has(task.id)}
+                                onToggleSelect={onToggleTaskSelection}
                                 onClick={(e) => { e.stopPropagation(); openTask(task) }}
                               />
                             ))}

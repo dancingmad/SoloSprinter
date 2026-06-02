@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Card, Tag, Typography, Progress } from 'antd'
+import { Card, Tag, Typography, Progress, Checkbox } from 'antd'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import ReactMarkdown from 'react-markdown'
@@ -22,7 +22,7 @@ function countSubtasks(description) {
   return { total, done }
 }
 
-export default function TaskCard({ task, onClick, compactView, swimlaneMode = true }) {
+export default function TaskCard({ task, onClick, compactView, swimlaneMode = true, selected = false, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -53,22 +53,53 @@ export default function TaskCard({ task, onClick, compactView, swimlaneMode = tr
 
   const previewText = hovered ? fullPreviewText : fullPreviewText.slice(0, 200)
 
+  const handleCardClick = (e) => {
+    // Ctrl/Cmd+click toggles selection without opening the modal
+    if (onToggleSelect && (e.ctrlKey || e.metaKey)) {
+      e.stopPropagation()
+      onToggleSelect(task.id)
+      return
+    }
+    onClick(e)
+  }
+
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       <Card
         size="small"
         hoverable
-        onClick={onClick}
-        style={{ width: '100%', boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.2)' : hovered ? '0 6px 20px rgba(0,0,0,0.18)' : undefined }}
+        onClick={handleCardClick}
+        style={{
+          width: '100%',
+          boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.2)' : hovered ? '0 6px 20px rgba(0,0,0,0.18)' : undefined,
+          border: selected ? '2px solid #1677ff' : undefined,
+          background: selected ? '#f0f8ff' : undefined,
+        }}
         styles={{ body: { padding: '8px 10px' } }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <Typography.Text strong style={{ fontSize: 13 }}>
-            {task.title || <span style={{ color: '#bbb' }}>Untitled</span>}
-          </Typography.Text>
-          {task.priority !== undefined && task.priority !== null && (
-            <span style={{ fontSize: 11, color: '#aaa', marginLeft: 6, flexShrink: 0 }}>#{task.priority + 1}</span>
+        {/* Title row with optional selection checkbox */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          {onToggleSelect && (
+            <Checkbox
+              checked={selected}
+              onClick={e => e.stopPropagation()}
+              onChange={() => onToggleSelect(task.id)}
+              style={{
+                marginRight: 6,
+                flexShrink: 0,
+                opacity: hovered || selected ? 1 : 0,
+                transition: 'opacity 0.15s',
+              }}
+            />
           )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1, minWidth: 0 }}>
+            <Typography.Text strong style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {task.title || <span style={{ color: '#bbb' }}>Untitled</span>}
+            </Typography.Text>
+            {task.priority !== undefined && task.priority !== null && (
+              <span style={{ fontSize: 11, color: '#aaa', marginLeft: 6, flexShrink: 0 }}>#{task.priority + 1}</span>
+            )}
+          </div>
         </div>
 
         {!compactView && previewText && (

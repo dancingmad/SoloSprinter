@@ -95,10 +95,10 @@ export default function RoadmapBoard({
   onCreateTask, onUpdateTask, onDeleteTask,
   onAddLabel, onDeleteLabel,
   compactView,
-  // Controlled quarter navigation — lifted to App so it's reflected in the URL.
-  // Falls back to local state when used standalone.
   viewStart: viewStartProp,
   onViewStartChange,
+  selectedTaskIds,
+  onToggleTaskSelection,
 }) {
   const [viewStartLocal, setViewStartLocal] = useState(defaultViewStart)
   const viewStart    = viewStartProp    ?? viewStartLocal
@@ -232,10 +232,11 @@ export default function RoadmapBoard({
 
   const filteredTasks = useMemo(() => {
     let result = tasks
-    if (filters.label) {
-      result = result.filter(t =>
-        t.label === filters.label || (t.extraLabels || []).includes(filters.label)
-      )
+    if (filters.labelsInclude && filters.labelsInclude.length > 0) {
+      result = result.filter(t => {
+        const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
+        return filters.labelsInclude.some(l => all.includes(l))
+      })
     }
     if (filters.daysOld) {
       const cutoff = new Date()
@@ -497,6 +498,8 @@ export default function RoadmapBoard({
                         opacity: isDragging ? 0.75 : 1,
                         borderRadius: range.extendsBefore ? '0 4px 4px 0' : range.extendsAfter ? '4px 0 0 4px' : 4,
                         borderLeft:  range.extendsBefore ? '3px solid rgba(0,0,0,0.25)' : undefined,
+                        outline: selectedTaskIds?.has(item.task.id) ? '2px solid #fff' : undefined,
+                        boxShadow: selectedTaskIds?.has(item.task.id) ? '0 0 0 4px #1677ff' : '0 1px 4px rgba(0,0,0,0.18)',
                         display: 'flex',
                         flexDirection: compactView ? 'row' : 'column',
                         alignItems: compactView ? 'center' : 'flex-start',
@@ -507,13 +510,17 @@ export default function RoadmapBoard({
                         userSelect: 'none',
                         overflow: 'hidden',
                         position: 'relative',
-                        boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
                       }}
                       onMouseDown={e => startDrag(e, item.task, 'move')}
                       onClick={e => {
                         e.stopPropagation()
                         if (lastDraggedRef.current === item.task.id) {
                           lastDraggedRef.current = null
+                          return
+                        }
+                        // Ctrl/Cmd+click toggles task selection
+                        if (onToggleTaskSelection && (e.ctrlKey || e.metaKey)) {
+                          onToggleTaskSelection(item.task.id)
                           return
                         }
                         setSelectedTask(item.task)

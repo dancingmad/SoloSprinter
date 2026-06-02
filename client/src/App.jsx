@@ -9,7 +9,7 @@ import BoardPicker from './components/BoardPicker'
 import {
   fetchBoards, createBoard, deleteBoard, renameBoard,
   fetchTasks, fetchStates, fetchSwimlanes, fetchLabels,
-  createTask, updateTask, deleteTask,
+  createTask, updateTask, deleteTask, bulkUpdateTasks,
   addState, deleteState, reorderStates,
   addSwimlane, deleteSwimlane, reorderSwimlanes,
   addLabel, deleteLabel
@@ -45,9 +45,12 @@ function parseHash() {
     swimlaneMode:     p.get('rows') !== 'label',
     compactView:      p.get('compact') === '1',
     filters: {
-      label:         p.get('label') || null,
-      daysOld:       p.get('daysOld')       ? parseInt(p.get('daysOld'))       : null,
-      maxPerColumn:  p.get('maxPerColumn')  ? parseInt(p.get('maxPerColumn'))  : null,
+      // li= is the new multi-label param; fall back to legacy label= for old shared URLs
+      labelsInclude: p.get('li')    ? p.get('li').split('|').filter(Boolean)
+                   : p.get('label') ? [p.get('label')]
+                   : [],
+      daysOld:      p.get('daysOld')      ? parseInt(p.get('daysOld'))      : null,
+      maxPerColumn: p.get('maxPerColumn') ? parseInt(p.get('maxPerColumn')) : null,
     },
     roadmapViewStart: p.get('qstart') || null,
   }
@@ -62,7 +65,7 @@ function buildHash(boardId, { viewMode, swimlaneMode, compactView, filters, road
   if (viewMode && viewMode !== 'kanban')  p.set('view',         viewMode)
   if (!swimlaneMode)                      p.set('rows',         'label')
   if (compactView)                        p.set('compact',      '1')
-  if (filters?.label)                     p.set('label',        filters.label)
+  if (filters?.labelsInclude?.length)     p.set('li', filters.labelsInclude.join('|'))
   if (filters?.daysOld)                   p.set('daysOld',      String(filters.daysOld))
   if (filters?.maxPerColumn)              p.set('maxPerColumn', String(filters.maxPerColumn))
   // Only include the roadmap quarter when the roadmap is active
@@ -83,7 +86,8 @@ export default function App() {
   const [swimlaneMode, setSwimlaneMode] = useState(true)
   const [viewMode, setViewMode] = useState('kanban')
   const [compactView, setCompactView] = useState(false)
-  const [filters, setFilters] = useState({ label: null, daysOld: null, maxPerColumn: null })
+  const [filters, setFilters] = useState({ labelsInclude: [], daysOld: null, maxPerColumn: null })
+  const [selectedTaskIds, setSelectedTaskIds] = useState(new Set())
   const [roadmapViewStart, setRoadmapViewStart] = useState(defaultViewStart)
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -109,7 +113,7 @@ export default function App() {
       setSwimlaneMode(urlState.swimlaneMode !== undefined ? urlState.swimlaneMode : true)
       setViewMode(urlState.viewMode || 'kanban')
       setCompactView(urlState.compactView || false)
-      setFilters(urlState.filters || { label: null, daysOld: null, maxPerColumn: null })
+      setFilters(urlState.filters || { labelsInclude: [], daysOld: null, maxPerColumn: null })
       if (urlState.roadmapViewStart) setRoadmapViewStart(urlState.roadmapViewStart)
       // Hash will be written by the URL-sync effect once state settles
     } catch (e) {
@@ -204,6 +208,29 @@ export default function App() {
     return () => clearInterval(interval)
   }, [activeBoard?.id])
 
+  // Clear selection when switching boards or views
+  useEffect(() => {
+    setSelectedTaskIds(new Set())
+  }, [activeBoard?.id, viewMode])
+
+  // IDs of tasks that survive the current filters (used for "Select all visible")
+  const filteredTaskIds = useMemo(() => {
+    let result = tasks
+    if (filters.labelsInclude && filters.labelsInclude.length > 0) {
+      result = result.filter(t => {
+        const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
+        return filters.labelsInclude.some(l => all.includes(l))
+      })
+    }
+    if (filters.daysOld) {
+      const cutoff = new Date()
+      cutoff.setHours(0, 0, 0, 0)
+      cutoff.setDate(cutoff.getDate() - (filters.daysOld - 1))
+      result = result.filter(t => t.updated && new Date(t.updated).getTime() >= cutoff.getTime())
+    }
+    return new Set(result.map(t => t.id))
+  }, [tasks, filters])
+
   // Board management
   const handleCreateBoard = async (name) => {
     const board = await createBoard(name)
@@ -222,6 +249,67 @@ export default function App() {
     if (board.error) { messageApi.error(board.error); return }
     setBoards(prev => prev.map(b => b.id === id ? board : b))
     if (activeBoard && activeBoard.id === id) setActiveBoard(board)
+  }
+
+  // Selection handlers
+  const handleToggleTaskSelection = useCallback((id) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
+
+  // Used by ListView tables: replace the selection for one group's rows
+  const handleMergeTaskSelection = useCallback((addIds, removeIds) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      removeIds.forEach(id => next.delete(id))
+      addIds.forEach(id => next.add(id))
+      return next
+    })
+  }, [])
+
+  const handleClearSelection = useCallback(() => setSelectedTaskIds(new Set()), [])
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedTaskIds(new Set(filteredTaskIds))
+  }, [filteredTaskIds])
+
+  const handleBulkLabelToggle = async (label) => {
+    const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id))
+    if (selectedTasks.length === 0 || !label) return
+
+    // Smart toggle: check both label and extraLabels for the "has" decision
+    const hasLabel = (t) => t.label === label || (t.extraLabels || []).includes(label)
+    const allHaveLabel = selectedTasks.every(hasLabel)
+
+    // Ensure label exists in board config when adding
+    if (!allHaveLabel && !labels.includes(label)) {
+      await handleAddLabel(label)
+    }
+
+    const updates = selectedTasks.map(t => {
+      const currentExtra = t.extraLabels || []
+      let newExtra
+      if (allHaveLabel) {
+        // Remove from extraLabels (primary label field is intentionally untouched)
+        newExtra = currentExtra.filter(l => l !== label)
+      } else {
+        // Only add to extraLabels if not already present anywhere
+        if (hasLabel(t)) return null
+        newExtra = [...currentExtra, label]
+      }
+      return { id: t.id, extraLabels: newExtra }
+    }).filter(Boolean)
+
+    if (updates.length === 0) return
+
+    const updatedTasks = await bulkUpdateTasks(activeBoard.id, updates)
+    if (Array.isArray(updatedTasks)) {
+      const map = new Map(updatedTasks.map(t => [t.id, t]))
+      setTasks(prev => prev.map(t => map.has(t.id) ? map.get(t.id) : t))
+    }
   }
 
   // Task handlers
@@ -360,6 +448,10 @@ export default function App() {
                 onToggleCompactView={setCompactView}
                 viewMode={viewMode}
                 onViewModeChange={(val) => { setViewMode(val); if (val === 'roadmap') setCompactView(true) }}
+                selectedCount={selectedTaskIds.size}
+                onClearSelection={handleClearSelection}
+                onSelectAll={handleSelectAll}
+                onBulkLabelToggle={handleBulkLabelToggle}
               />
               <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
               {viewMode === 'roadmap' ? (
@@ -379,6 +471,8 @@ export default function App() {
                   onDeleteTask={handleDeleteTask}
                   onAddLabel={handleAddLabel}
                   onDeleteLabel={handleDeleteLabel}
+                  selectedTaskIds={selectedTaskIds}
+                  onToggleTaskSelection={handleToggleTaskSelection}
                 />
               ) : viewMode === 'list' ? (
                 <ListView
@@ -393,6 +487,8 @@ export default function App() {
                   onDeleteTask={handleDeleteTask}
                   onAddLabel={handleAddLabel}
                   onDeleteLabel={handleDeleteLabel}
+                  selectedTaskIds={selectedTaskIds}
+                  onMergeTaskSelection={handleMergeTaskSelection}
                 />
               ) : (
                 <KanbanBoard
@@ -416,6 +512,8 @@ export default function App() {
                   onReorderSwimlanes={handleReorderSwimlanes}
                   onAddLabel={handleAddLabel}
                   onDeleteLabel={handleDeleteLabel}
+                  selectedTaskIds={selectedTaskIds}
+                  onToggleTaskSelection={handleToggleTaskSelection}
                 />
               )}
               </div>

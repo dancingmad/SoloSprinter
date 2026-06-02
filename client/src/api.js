@@ -135,6 +135,15 @@ export async function deleteLabel(boardId, name) {
   return r.json()
 }
 
+export async function bulkUpdateTasks(boardId, updates) {
+  const r = await fetch(`${boardBase(boardId)}/tasks/bulk`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  })
+  return r.json()
+}
+
 export async function updateTaskPriorities(boardId, updates) {
   const r = await fetch(`${boardBase(boardId)}/tasks/priorities`, {
     method: 'PATCH',

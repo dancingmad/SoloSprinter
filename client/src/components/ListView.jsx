@@ -42,7 +42,7 @@ function formatQuarters(roadmapMonths) {
   return `Q${startQ} ${startY} – Q${endQ} ${endY}`
 }
 
-export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, swimlaneMode = true, onUpdateTask, onDeleteTask, onAddLabel, onDeleteLabel }) {
+export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, swimlaneMode = true, onUpdateTask, onDeleteTask, onAddLabel, onDeleteLabel, selectedTaskIds, onMergeTaskSelection }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -53,9 +53,12 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
 
   const filteredTasks = useMemo(() => {
     let result = [...tasks]
-    if (filters.label) result = result.filter(t =>
-      t.label === filters.label || (t.extraLabels || []).includes(filters.label)
-    )
+    if (filters.labelsInclude && filters.labelsInclude.length > 0) {
+      result = result.filter(t => {
+        const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
+        return filters.labelsInclude.some(l => all.includes(l))
+      })
+    }
     if (filters.daysOld) {
       const cutoff = new Date()
       cutoff.setHours(0, 0, 0, 0)
@@ -167,6 +170,20 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
     return updated
   }
 
+  // Build an Ant Design rowSelection config scoped to one swimlane/label group's tasks
+  const makeRowSelection = (groupTasks) => {
+    if (!onMergeTaskSelection) return undefined
+    const groupIds = groupTasks.map(t => t.id)
+    return {
+      selectedRowKeys: groupIds.filter(id => selectedTaskIds?.has(id)),
+      onChange: (newSelectedKeys) => {
+        const addIds    = groupIds.filter(id => newSelectedKeys.includes(id) && !selectedTaskIds?.has(id))
+        const removeIds = groupIds.filter(id => !newSelectedKeys.includes(id) && selectedTaskIds?.has(id))
+        onMergeTaskSelection(addIds, removeIds)
+      },
+    }
+  }
+
   const items = (() => {
     if (swimlaneMode) {
       // group by swimlane
@@ -188,6 +205,7 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
               columns={columns}
               dataSource={sorted}
               rowKey="id"
+              rowSelection={makeRowSelection(sorted)}
               pagination={false}
               size="small"
               style={{ marginBottom: 0 }}
@@ -217,6 +235,7 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
               columns={columns}
               dataSource={sorted}
               rowKey="id"
+              rowSelection={makeRowSelection(sorted)}
               pagination={false}
               size="small"
               style={{ marginBottom: 0 }}
@@ -243,6 +262,7 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
               columns={columns}
               dataSource={sorted}
               rowKey="id"
+              rowSelection={makeRowSelection(sorted)}
               pagination={false}
               size="small"
               style={{ marginBottom: 0 }}

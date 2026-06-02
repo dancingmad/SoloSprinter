@@ -23,6 +23,16 @@ router.get('/', (req, res) => {
   res.json(getAllTasks(req.params.boardId));
 });
 
+// PATCH bulk update multiple tasks - must be before /:id
+router.patch('/bulk', (req, res) => {
+  const updates = req.body
+  if (!Array.isArray(updates)) return res.status(400).json({ error: 'Expected array' })
+  const results = updates.map(({ id, ...fields }) =>
+    updateTask(req.params.boardId, id, fields)
+  ).filter(Boolean)
+  res.json(results)
+})
+
 // PATCH bulk update priorities (no history entries) - must be before /:id
 router.patch('/priorities', (req, res) => {
   const updates = req.body
