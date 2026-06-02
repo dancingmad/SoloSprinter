@@ -22,7 +22,7 @@ function countSubtasks(description) {
   return { total, done }
 }
 
-export default function TaskCard({ task, onClick, compactView }) {
+export default function TaskCard({ task, onClick, compactView, swimlaneMode = true }) {
   const [hovered, setHovered] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -78,7 +78,10 @@ export default function TaskCard({ task, onClick, compactView }) {
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-          {task.label && <Tag color={labelColor(task.label)} style={{ fontSize: 11, margin: 0 }}>{task.label}</Tag>}
+          {/* In swimlane-row mode show the primary label; hide it in label-row mode (redundant) */}
+          {swimlaneMode && task.label &&
+            <Tag color={labelColor(task.label)} style={{ fontSize: 11, margin: 0 }}>{task.label}</Tag>
+          }
           {(task.extraLabels || []).map(lbl => (
             <Tag key={lbl} color={labelColor(lbl)} style={{ fontSize: 11, margin: 0 }}>{lbl}</Tag>
           ))}

@@ -60,28 +60,32 @@ export default function FilterBar({ labels, swimlaneMode, onToggleSwimlaneMode, 
           />
         </Space>
       </Col>
-      <Col>
-        <Space>
-          <Typography.Text>Compact:</Typography.Text>
-          <Switch
-            checked={compactView}
-            onChange={onToggleCompactView}
-          />
-        </Space>
-      </Col>
-      <Col>
-        <Space>
-          <Typography.Text>Max per column:</Typography.Text>
-          <InputNumber
-            min={1}
-            max={200}
-            placeholder="All"
-            style={{ width: 80 }}
-            value={filters.maxPerColumn}
-            onChange={val => onFiltersChange({ ...filters, maxPerColumn: val || null })}
-          />
-        </Space>
-      </Col>
+      {viewMode === 'kanban' || viewMode === 'roadmap' ? (
+        <Col>
+          <Space>
+            <Typography.Text>Compact:</Typography.Text>
+            <Switch
+              checked={compactView}
+              onChange={onToggleCompactView}
+            />
+          </Space>
+        </Col>
+      ) : null}
+      {viewMode === 'kanban' ? (
+        <Col>
+          <Space>
+            <Typography.Text>Max per column:</Typography.Text>
+            <InputNumber
+              min={1}
+              max={200}
+              placeholder="All"
+              style={{ width: 80 }}
+              value={filters.maxPerColumn}
+              onChange={val => onFiltersChange({ ...filters, maxPerColumn: val || null })}
+            />
+          </Space>
+        </Col>
+      ) : null}
     </Row>
   )
 }

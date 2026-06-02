@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { ConfigProvider, theme, Layout, Typography, Spin, message, Button, Tooltip } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import KanbanBoard from './components/KanbanBoard'
@@ -17,6 +17,60 @@ import {
 
 const { Header, Content } = Layout
 
+// ── URL helpers ──────────────────────────────────────────────────────────────
+
+function _pad(n) { return String(n).padStart(2, '0') }
+function defaultViewStart() {
+  const now = new Date()
+  const qStart = Math.floor(now.getMonth() / 3) * 3 + 1
+  return `${now.getFullYear()}-${_pad(qStart)}`
+}
+
+/**
+ * Parse the current window.location.hash into structured state.
+ * Hash format: #board/<boardId>[?view=kanban&rows=label&compact=1&label=foo&daysOld=7&maxPerColumn=10&qstart=2026-01]
+ */
+function parseHash() {
+  const raw = window.location.hash.slice(1) // strip leading #
+  if (!raw.startsWith('board/')) return null
+  const qIdx = raw.indexOf('?')
+  const boardPart = qIdx === -1 ? raw.slice('board/'.length) : raw.slice('board/'.length, qIdx)
+  const search    = qIdx === -1 ? '' : raw.slice(qIdx + 1)
+  const boardId   = decodeURIComponent(boardPart)
+  if (!boardId) return null
+  const p = new URLSearchParams(search)
+  return {
+    boardId,
+    viewMode:         ['kanban', 'roadmap', 'list'].includes(p.get('view')) ? p.get('view') : 'kanban',
+    swimlaneMode:     p.get('rows') !== 'label',
+    compactView:      p.get('compact') === '1',
+    filters: {
+      label:         p.get('label') || null,
+      daysOld:       p.get('daysOld')       ? parseInt(p.get('daysOld'))       : null,
+      maxPerColumn:  p.get('maxPerColumn')  ? parseInt(p.get('maxPerColumn'))  : null,
+    },
+    roadmapViewStart: p.get('qstart') || null,
+  }
+}
+
+/**
+ * Serialise current view state into a shareable hash string.
+ * Only non-default values are included to keep URLs short.
+ */
+function buildHash(boardId, { viewMode, swimlaneMode, compactView, filters, roadmapViewStart }) {
+  const p = new URLSearchParams()
+  if (viewMode && viewMode !== 'kanban')  p.set('view',         viewMode)
+  if (!swimlaneMode)                      p.set('rows',         'label')
+  if (compactView)                        p.set('compact',      '1')
+  if (filters?.label)                     p.set('label',        filters.label)
+  if (filters?.daysOld)                   p.set('daysOld',      String(filters.daysOld))
+  if (filters?.maxPerColumn)              p.set('maxPerColumn', String(filters.maxPerColumn))
+  // Only include the roadmap quarter when the roadmap is active
+  if (viewMode === 'roadmap' && roadmapViewStart) p.set('qstart', roadmapViewStart)
+  const qs = p.toString()
+  return `#board/${encodeURIComponent(boardId)}${qs ? '?' + qs : ''}`
+}
+
 export default function App() {
   const [boards, setBoards] = useState([])
   const [activeBoard, setActiveBoard] = useState(null)
@@ -30,7 +84,40 @@ export default function App() {
   const [viewMode, setViewMode] = useState('kanban')
   const [compactView, setCompactView] = useState(false)
   const [filters, setFilters] = useState({ label: null, daysOld: null, maxPerColumn: null })
+  const [roadmapViewStart, setRoadmapViewStart] = useState(defaultViewStart)
   const [messageApi, contextHolder] = message.useMessage()
+
+  // Prevent our own hash writes from triggering the hashchange handler
+  const suppressHashChange = useRef(false)
+
+  // Load board data when a board is selected.
+  // urlState is optional; when provided (URL share / browser nav) it overrides the defaults.
+  const loadBoard = useCallback(async (board, urlState = {}) => {
+    setBoardLoading(true)
+    try {
+      const [t, s, sw, lb] = await Promise.all([
+        fetchTasks(board.id),
+        fetchStates(board.id),
+        fetchSwimlanes(board.id),
+        fetchLabels(board.id)
+      ])
+      setTasks(t)
+      setStates(s)
+      setSwimlanes(sw)
+      setLabels(lb)
+      setActiveBoard(board)
+      setSwimlaneMode(urlState.swimlaneMode !== undefined ? urlState.swimlaneMode : true)
+      setViewMode(urlState.viewMode || 'kanban')
+      setCompactView(urlState.compactView || false)
+      setFilters(urlState.filters || { label: null, daysOld: null, maxPerColumn: null })
+      if (urlState.roadmapViewStart) setRoadmapViewStart(urlState.roadmapViewStart)
+      // Hash will be written by the URL-sync effect once state settles
+    } catch (e) {
+      messageApi.error('Failed to load board data')
+    } finally {
+      setBoardLoading(false)
+    }
+  }, [messageApi])
 
   // Load boards list on mount
   useEffect(() => {
@@ -43,23 +130,47 @@ export default function App() {
   // Auto-navigate to board from URL hash once boards are loaded
   useEffect(() => {
     if (loading) return
-    const match = window.location.hash.match(/^#board\/(.+)$/)
-    if (match && !activeBoard) {
-      const board = boards.find(b => b.id === decodeURIComponent(match[1]))
-      if (board) loadBoard(board)
+    const parsed = parseHash()
+    if (parsed && !activeBoard) {
+      const board = boards.find(b => b.id === parsed.boardId)
+      if (board) loadBoard(board, parsed)
     }
   }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle browser back/forward via hashchange
+  // Keep URL in sync with current view state whenever it changes
   useEffect(() => {
+    if (!activeBoard) return
+    suppressHashChange.current = true
+    const hash = buildHash(activeBoard.id, { viewMode, swimlaneMode, compactView, filters, roadmapViewStart })
+    window.location.hash = hash
+    // Reset flag after the hashchange event has had a chance to fire
+    requestAnimationFrame(() => { suppressHashChange.current = false })
+  }, [activeBoard?.id, viewMode, swimlaneMode, compactView, filters, roadmapViewStart])
+
+  // Handle browser back / forward
+  useEffect(() => {
+    const applyParsed = (parsed) => {
+      setViewMode(parsed.viewMode)
+      setSwimlaneMode(parsed.swimlaneMode)
+      setCompactView(parsed.compactView)
+      setFilters(parsed.filters)
+      if (parsed.roadmapViewStart) setRoadmapViewStart(parsed.roadmapViewStart)
+    }
     const onHashChange = () => {
-      if (!window.location.hash.startsWith('#board/')) {
-        setActiveBoard(null)
+      if (suppressHashChange.current) return
+      const parsed = parseHash()
+      if (!parsed) { setActiveBoard(null); return }
+      if (activeBoard && activeBoard.id === parsed.boardId) {
+        applyParsed(parsed)
+      } else {
+        const board = boards.find(b => b.id === parsed.boardId)
+        if (board) loadBoard(board, parsed)
+        else setActiveBoard(null)
       }
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
+  }, [activeBoard, boards, loadBoard])
 
   // Poll for task changes every 10 seconds when a board is active
   const activeBoardIdRef = useRef(null)
@@ -92,32 +203,6 @@ export default function App() {
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
   }, [activeBoard?.id])
-
-  // Load board data when a board is selected
-  const loadBoard = useCallback(async (board) => {
-    setBoardLoading(true)
-    try {
-      const [t, s, sw, lb] = await Promise.all([
-        fetchTasks(board.id),
-        fetchStates(board.id),
-        fetchSwimlanes(board.id),
-        fetchLabels(board.id)
-      ])
-      setTasks(t)
-      setStates(s)
-      setSwimlanes(sw)
-      setLabels(lb)
-      setActiveBoard(board)
-      setSwimlaneMode(true)
-      setViewMode('kanban')
-      setFilters({ label: null, daysOld: null, maxPerColumn: null })
-      window.location.hash = `#board/${encodeURIComponent(board.id)}`
-    } catch (e) {
-      messageApi.error('Failed to load board data')
-    } finally {
-      setBoardLoading(false)
-    }
-  }, [messageApi])
 
   // Board management
   const handleCreateBoard = async (name) => {
@@ -229,6 +314,23 @@ export default function App() {
               />
             </Tooltip>
           )}
+          {activeBoard && (
+            <Tooltip title="Copy shareable link">
+              <Button
+                type="text"
+                style={{ color: '#fff', fontSize: 18, lineHeight: 1 }}
+                onClick={() => {
+                  const url = window.location.href
+                  navigator.clipboard.writeText(url).then(
+                    () => messageApi.success('Link copied!'),
+                    () => messageApi.error('Failed to copy link')
+                  )
+                }}
+              >
+                🔗
+              </Button>
+            </Tooltip>
+          )}
           <Typography.Title level={3} style={{ color: '#fff', margin: 0, flex: 1 }}>
             🏃 SoloSprinter{activeBoard ? ` — ${activeBoard.name}` : ''}
           </Typography.Title>
@@ -249,7 +351,7 @@ export default function App() {
           ) : (
             <>
               <FilterBar
-                labels={[...new Set([...labels, ...tasks.flatMap(t => t.extraLabels || [])].filter(Boolean))]}
+                labels={[...new Set([...labels, ...tasks.map(t => t.label), ...tasks.flatMap(t => t.extraLabels || [])].filter(Boolean))]}
                 swimlaneMode={swimlaneMode}
                 onToggleSwimlaneMode={setSwimlaneMode}
                 filters={filters}
@@ -267,7 +369,11 @@ export default function App() {
                   states={states}
                   swimlanes={swimlanes}
                   labels={labels}
+                  filters={filters}
+                  swimlaneMode={swimlaneMode}
                   compactView={compactView}
+                  viewStart={roadmapViewStart}
+                  onViewStartChange={setRoadmapViewStart}
                   onCreateTask={handleCreateTask}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
@@ -282,6 +388,7 @@ export default function App() {
                   swimlanes={swimlanes}
                   labels={labels}
                   filters={filters}
+                  swimlaneMode={swimlaneMode}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
                   onAddLabel={handleAddLabel}

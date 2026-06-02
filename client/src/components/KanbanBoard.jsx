@@ -158,12 +158,7 @@ export default function KanbanBoard({
   const [addRowOpen, setAddRowOpen] = useState(false)
   const [pendingTask, setPendingTask] = useState(null)  // fields awaiting a title before creation
 
-  const NO_LABEL = '(No Label)'
-  const rows = swimlaneMode ? swimlanes : [NO_LABEL, ...labels]
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-
-  // Apply filters
+  // Apply filters first — rows in label mode are derived from filtered tasks
   const filteredTasks = useMemo(() => {
     let result = [...tasks]
     if (filters.label) result = result.filter(t =>
@@ -178,6 +173,18 @@ export default function KanbanBoard({
     }
     return result
   }, [tasks, filters])
+
+  const NO_LABEL = '(No Label)'
+  const rows = useMemo(() => {
+    if (swimlaneMode) return swimlanes
+    // In label mode only show rows that have at least one task after filtering.
+    // (Unlike swimlane mode we don't need empty rows for drag-and-drop targets.)
+    const hasNoLabel = filteredTasks.some(t => !t.label || t.label === '')
+    const usedLabels = labels.filter(lbl => filteredTasks.some(t => t.label === lbl))
+    return [...(hasNoLabel ? [NO_LABEL] : []), ...usedLabels]
+  }, [swimlaneMode, swimlanes, labels, filteredTasks])
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const getTasksForCell = (state, row) => {
     let cellTasks = filteredTasks.filter(t => {
@@ -427,6 +434,7 @@ export default function KanbanBoard({
                                 key={task.id}
                                 task={task}
                                 compactView={compactView}
+                                swimlaneMode={swimlaneMode}
                                 onClick={(e) => { e.stopPropagation(); openTask(task) }}
                               />
                             ))}
@@ -469,7 +477,7 @@ export default function KanbanBoard({
         <DragOverlay>
           {activeTask && (
             <div style={{ width: 220, opacity: 0.9 }}>
-              <TaskCard task={activeTask} compactView={compactView} onClick={() => {}} />
+              <TaskCard task={activeTask} compactView={compactView} swimlaneMode={swimlaneMode} onClick={() => {}} />
             </div>
           )}
         </DragOverlay>

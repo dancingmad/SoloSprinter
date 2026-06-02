@@ -90,11 +90,19 @@ function taskColRange(roadmapMonths, visibleMonths) {
 
 export default function RoadmapBoard({
   boardId, tasks, swimlanes, labels, states,
+  filters = {},
+  swimlaneMode = true,
   onCreateTask, onUpdateTask, onDeleteTask,
   onAddLabel, onDeleteLabel,
   compactView,
+  // Controlled quarter navigation — lifted to App so it's reflected in the URL.
+  // Falls back to local state when used standalone.
+  viewStart: viewStartProp,
+  onViewStartChange,
 }) {
-  const [viewStart, setViewStart]       = useState(defaultViewStart)
+  const [viewStartLocal, setViewStartLocal] = useState(defaultViewStart)
+  const viewStart    = viewStartProp    ?? viewStartLocal
+  const setViewStart = onViewStartChange ?? setViewStartLocal
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen]       = useState(false)
   const [dragPreview, setDragPreview]   = useState(null)  // { taskId, months }
@@ -222,14 +230,30 @@ export default function RoadmapBoard({
 
   // ── layout rows ────────────────────────────────────────────────────────────
 
+  const filteredTasks = useMemo(() => {
+    let result = tasks
+    if (filters.label) {
+      result = result.filter(t =>
+        t.label === filters.label || (t.extraLabels || []).includes(filters.label)
+      )
+    }
+    if (filters.daysOld) {
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - (filters.daysOld - 1))
+      cutoff.setHours(0, 0, 0, 0)
+      result = result.filter(t => t.updated && new Date(t.updated) >= cutoff)
+    }
+    return result
+  }, [tasks, filters])
+
   const layoutItems = useMemo(() => {
     const items = []
     let row = 3  // rows 1+2 are sticky headers
 
-    if (compactView) {
-      // compact: group by swimlane
+    if (swimlaneMode) {
+      // group by swimlane
       for (const swimlane of swimlanes) {
-        const slTasks = tasks.filter(t =>
+        const slTasks = filteredTasks.filter(t =>
           t.swimlane === swimlane && (getEffectiveMonths(t).length > 0)
         )
         items.push({ type: 'swimlane-header', swimlane, gridRow: row++ })
@@ -238,9 +262,9 @@ export default function RoadmapBoard({
         }
       }
     } else {
-      // non-compact: group by label
+      // group by label
       for (const label of labels) {
-        const labelTasks = tasks.filter(t =>
+        const labelTasks = filteredTasks.filter(t =>
           t.label === label && (getEffectiveMonths(t).length > 0)
         )
         if (labelTasks.length === 0) continue
@@ -250,7 +274,7 @@ export default function RoadmapBoard({
         }
       }
       // tasks with no label
-      const noLabelTasks = tasks.filter(t =>
+      const noLabelTasks = filteredTasks.filter(t =>
         !t.label && (getEffectiveMonths(t).length > 0)
       )
       if (noLabelTasks.length > 0) {
@@ -262,7 +286,7 @@ export default function RoadmapBoard({
     }
 
     return items
-  }, [swimlanes, labels, tasks, getEffectiveMonths, compactView])
+  }, [swimlanes, labels, filteredTasks, getEffectiveMonths, swimlaneMode, compactView])
 
   // ── render ─────────────────────────────────────────────────────────────────
 
@@ -523,7 +547,8 @@ export default function RoadmapBoard({
                               {desc}
                             </div>
                           )}
-                          {item.task.swimlane && (
+                          {/* In swimlane-row mode show the primary label; hidden in label-row mode (redundant) */}
+                          {swimlaneMode && item.task.label && (
                             <div style={{
                               fontSize: 10,
                               background: 'rgba(255,255,255,0.25)',
@@ -532,7 +557,7 @@ export default function RoadmapBoard({
                               whiteSpace: 'nowrap',
                               flexShrink: 0,
                             }}>
-                              {item.task.swimlane}
+                              {item.task.label}
                             </div>
                           )}
                         </div>

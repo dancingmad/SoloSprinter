@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Table, Tag, Collapse, Typography } from 'antd'
+import { Table, Tag, Collapse, Typography, Button } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
 import TaskModal from './TaskModal'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -20,6 +21,15 @@ function formatMonth(ym) {
   return `${MONTH_NAMES[m - 1]} ${y}`
 }
 
+function escapeCSV(value) {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return '"' + str.replace(/"/g, '""') + '"'
+  }
+  return str
+}
+
 function formatQuarters(roadmapMonths) {
   if (!roadmapMonths || roadmapMonths.length === 0) return '—'
   const [startY, startM] = roadmapMonths[0].split('-').map(Number)
@@ -32,7 +42,7 @@ function formatQuarters(roadmapMonths) {
   return `Q${startQ} ${startY} – Q${endQ} ${endY}`
 }
 
-export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, onUpdateTask, onDeleteTask, onAddLabel, onDeleteLabel }) {
+export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, swimlaneMode = true, onUpdateTask, onDeleteTask, onAddLabel, onDeleteLabel }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -129,43 +139,132 @@ export default function ListView({ boardId, tasks, states, swimlanes, labels, fi
     },
   ]
 
+  function exportCSV() {
+    const header = ['Feature', 'Status', 'Swimlane', 'Type', 'Labels', 'Start date', 'End date', 'Quarters']
+    const rows = filteredTasks.map(t => [
+      t.title || '',
+      t.state || '',
+      t.swimlane || '',
+      t.label || '',
+      (t.extraLabels || []).join('; '),
+      formatMonth(t.roadmapMonths?.[0]),
+      formatMonth(t.roadmapMonths?.[t.roadmapMonths.length - 1]),
+      formatQuarters(t.roadmapMonths),
+    ])
+    const csv = [header, ...rows].map(r => r.map(escapeCSV).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'tasks.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleUpdateTask = async (id, fields) => {
     const updated = await onUpdateTask(id, fields)
     if (selectedTask && selectedTask.id === id) setSelectedTask(updated)
     return updated
   }
 
-  const items = swimlanes.map(swimlane => {
-    const swimlaneTasks = filteredTasks.filter(t => t.swimlane === swimlane)
-    const sorted = sortedTasksForSwimlane(swimlaneTasks)
-    return {
-      key: swimlane,
-      label: (
-        <Typography.Text strong>
-          {swimlane}
-          <Typography.Text type="secondary" style={{ fontWeight: 400, marginLeft: 6 }}>
-            ({sorted.length})
-          </Typography.Text>
-        </Typography.Text>
-      ),
-      children: (
-        <Table
-          columns={columns}
-          dataSource={sorted}
-          rowKey="id"
-          pagination={false}
-          size="small"
-          style={{ marginBottom: 0 }}
-        />
-      ),
+  const items = (() => {
+    if (swimlaneMode) {
+      // group by swimlane
+      return swimlanes.map(swimlane => {
+        const swimlaneTasks = filteredTasks.filter(t => t.swimlane === swimlane)
+        const sorted = sortedTasksForSwimlane(swimlaneTasks)
+        return {
+          key: `sl-${swimlane}`,
+          label: (
+            <Typography.Text strong>
+              {swimlane}
+              <Typography.Text type="secondary" style={{ fontWeight: 400, marginLeft: 6 }}>
+                ({sorted.length})
+              </Typography.Text>
+            </Typography.Text>
+          ),
+          children: (
+            <Table
+              columns={columns}
+              dataSource={sorted}
+              rowKey="id"
+              pagination={false}
+              size="small"
+              style={{ marginBottom: 0 }}
+            />
+          ),
+        }
+      })
+    } else {
+      // group by label
+      const groups = []
+      for (const label of labels) {
+        const labelTasks = filteredTasks.filter(t => t.label === label)
+        if (labelTasks.length === 0) continue  // hide empty label groups
+        const sorted = sortedTasksForSwimlane(labelTasks)
+        groups.push({
+          key: `lbl-${label}`,
+          label: (
+            <Typography.Text strong>
+              {label}
+              <Typography.Text type="secondary" style={{ fontWeight: 400, marginLeft: 6 }}>
+                ({sorted.length})
+              </Typography.Text>
+            </Typography.Text>
+          ),
+          children: (
+            <Table
+              columns={columns}
+              dataSource={sorted}
+              rowKey="id"
+              pagination={false}
+              size="small"
+              style={{ marginBottom: 0 }}
+            />
+          ),
+        })
+      }
+      // tasks with no label
+      const noLabelTasks = filteredTasks.filter(t => !t.label)
+      if (noLabelTasks.length > 0) {
+        const sorted = sortedTasksForSwimlane(noLabelTasks)
+        groups.push({
+          key: 'lbl-(no label)',
+          label: (
+            <Typography.Text strong>
+              (No Label)
+              <Typography.Text type="secondary" style={{ fontWeight: 400, marginLeft: 6 }}>
+                ({sorted.length})
+              </Typography.Text>
+            </Typography.Text>
+          ),
+          children: (
+            <Table
+              columns={columns}
+              dataSource={sorted}
+              rowKey="id"
+              pagination={false}
+              size="small"
+              style={{ marginBottom: 0 }}
+            />
+          ),
+        })
+      }
+      return groups
     }
-  })
+  })()
 
   return (
     <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Button icon={<DownloadOutlined />} onClick={exportCSV}>
+          Export CSV
+        </Button>
+      </div>
       <Collapse
+        key={swimlaneMode ? 'sl' : 'lb'}
         items={items}
-        defaultActiveKey={swimlanes}
+        defaultActiveKey={items.map(i => i.key)}
         style={{ borderRadius: 0, border: '1px solid #e8e8e8' }}
       />
       <TaskModal

@@ -6,7 +6,7 @@ const { z } = require('zod');
 const {
   getBoards, createBoard,
   getAllTasks, readTask, createTask, updateTask, deleteTask,
-  getConfig,
+  getConfig, saveConfig,
 } = require('../utils/fileStore');
 
 function buildMcpServer() {
@@ -142,20 +142,32 @@ function buildMcpServer() {
       title: z.string().describe('Task title'),
       state: z.string().optional().describe('Column/state name. Defaults to the first state on the board.'),
       swimlane: z.string().optional().describe('Swimlane name. Defaults to the first swimlane on the board.'),
-      label: z.string().optional().describe('Primary label'),
+      label: z.string().optional().describe('Primary label. Auto-registered in board config if new.'),
+      extraLabels: z.array(z.string()).optional().describe('Additional labels beyond the primary label. All new labels are auto-registered.'),
       description: z.string().optional().describe('Task body in markdown'),
+      priority: z.number().optional().describe('Sort priority within its column (lower number = higher up). 0 = top.'),
       roadmapMonths: z.array(z.string()).optional().describe(
         'Months this task spans on the roadmap, as YYYY-MM strings, e.g. ["2026-03","2026-04","2026-05"]'
       ),
     },
-    async ({ boardId, title, state, swimlane, label, description, roadmapMonths }) => {
+    async ({ boardId, title, state, swimlane, label, extraLabels, description, priority, roadmapMonths }) => {
       const config = getConfig(boardId);
+      // Auto-register new labels in config
+      let configChanged = false;
+      if (!config.labels) config.labels = [];
+      const allNewLabels = [label, ...(extraLabels || [])].filter(Boolean);
+      for (const l of allNewLabels) {
+        if (!config.labels.includes(l)) { config.labels.push(l); configChanged = true; }
+      }
+      if (configChanged) saveConfig(boardId, config);
       const task = createTask(boardId, {
         title,
         state:         state    || config.states[0]    || 'Todo',
         swimlane:      swimlane || config.swimlanes[0] || 'Backlog',
         label:         label       || '',
+        extraLabels:   extraLabels || [],
         description:   description || '',
+        priority:      priority,
         roadmapMonths: roadmapMonths || [],
       });
       return { content: [{ type: 'text', text: JSON.stringify(task) }] };
@@ -171,21 +183,53 @@ function buildMcpServer() {
       title:         z.string().optional().describe('New title'),
       state:         z.string().optional().describe('Move to a different column/state'),
       swimlane:      z.string().optional().describe('Move to a different swimlane'),
-      label:         z.string().optional().describe('Change primary label'),
+      label:         z.string().optional().describe('Change primary label. Auto-registered in board config if new.'),
+      extraLabels:   z.array(z.string()).optional().describe('Replace the extra-labels list. All new labels are auto-registered.'),
       description:   z.string().optional().describe('New body in markdown'),
       priority:      z.number().optional().describe('Sort priority within its column (lower = higher up)'),
       roadmapMonths: z.array(z.string()).optional().describe(
         'Replace roadmap months span, e.g. ["2026-06","2026-07"]'
       ),
     },
-    async ({ boardId, taskId, title, state, swimlane, label, description, priority, roadmapMonths }) => {
+    async ({ boardId, taskId, title, state, swimlane, label, extraLabels, description, priority, roadmapMonths }) => {
+      // Auto-register new labels in config
+      const allNewLabels = [label, ...(extraLabels || [])].filter(Boolean);
+      if (allNewLabels.length > 0) {
+        const config = getConfig(boardId);
+        if (!config.labels) config.labels = [];
+        let configChanged = false;
+        for (const l of allNewLabels) {
+          if (!config.labels.includes(l)) { config.labels.push(l); configChanged = true; }
+        }
+        if (configChanged) saveConfig(boardId, config);
+      }
       const fields = Object.fromEntries(
-        Object.entries({ title, state, swimlane, label, description, priority, roadmapMonths })
+        Object.entries({ title, state, swimlane, label, extraLabels, description, priority, roadmapMonths })
           .filter(([, v]) => v !== undefined)
       );
       const task = updateTask(boardId, taskId, fields);
       if (!task) throw new Error(`Task ${taskId} not found on board ${boardId}`);
       return { content: [{ type: 'text', text: JSON.stringify(task) }] };
+    }
+  );
+
+  server.tool(
+    'reorder_tasks',
+    'Set the display order of tasks within a board column (and optionally swimlane/label row). ' +
+    'Pass task IDs in the desired top-to-bottom order; they will be assigned priorities 0, 1, 2, … ' +
+    'Any tasks in the same cell that are omitted from the list will be assigned higher priorities after the listed ones. ' +
+    'Use list_tasks with state/swimlane filters to get the current task IDs in a cell first.',
+    {
+      boardId:  z.string().describe('Board ID from list_boards'),
+      taskIds:  z.array(z.string()).describe('Task IDs in desired top-to-bottom order (first = priority 0)'),
+    },
+    async ({ boardId, taskIds }) => {
+      const results = [];
+      for (let i = 0; i < taskIds.length; i++) {
+        const task = updateTask(boardId, taskIds[i], { priority: i }, true);
+        if (task) results.push({ id: task.id, priority: i });
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ updated: results.length, results }) }] };
     }
   );
 

@@ -9,20 +9,14 @@ Use this skill when the user asks you to read, create, update or delete anything
 
 ## Setup
 
-The CLI lives at `cli/ss.js` inside the SoloSprinter project root.
-Install dependencies once before first use:
-
-```bash
-cd /path/to/SoloSprinter/cli && npm install
-```
+The CLI is bundled directly in this skill at `cli/ss.js` (absolute path: `/Users/thores/.pi/agent/skills/solosprinter/cli/ss.js`).
+Dependencies are already installed — no `npm install` needed.
 
 Run every command as:
 
 ```bash
-node /path/to/SoloSprinter/cli/ss.js <command> [options]
+node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js <command> [options]
 ```
-
-Or, if installed globally / symlinked, just `ss <command>`.
 
 Instance configuration is stored at `~/.solosprinter-cli.json` (overridable with `SS_CONFIG` env var).
 
@@ -280,37 +274,47 @@ ss sync local prod
 
 ## Typical agent workflow
 
+Define a short alias for convenience:
+```bash
+alias ss="node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js"
+```
+
+Or use the full path inline, e.g.:
+```bash
+node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js boards list
+```
+
 1. **Discover** — always start by listing instances and boards:
    ```bash
-   ss instance list
-   ss boards list
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js instance list
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js boards list
    # or for a specific instance:
-   ss -i prod boards list
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js -i prod boards list
    ```
 
 2. **Inspect a board** — get its config and tasks:
    ```bash
-   ss states list <boardId>
-   ss swimlanes list <boardId>
-   ss labels list <boardId>
-   ss tasks list <boardId>
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js states list <boardId>
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js swimlanes list <boardId>
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js labels list <boardId>
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js tasks list <boardId>
    ```
 
 3. **Read a task** — use the full UUID:
    ```bash
-   ss tasks get <boardId> <taskId>
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js tasks get <boardId> <taskId>
    ```
 
 4. **Create / update** — supply only the fields you know; the server applies defaults:
    ```bash
-   ss tasks create <boardId> --title "New feature" --state "Todo"
-   ss tasks update <boardId> <taskId> --state "Done"
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js tasks create <boardId> --title "New feature" --state "Todo"
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js tasks update <boardId> <taskId> --state "Done"
    ```
 
 5. **Sync** — always do a dry-run first:
    ```bash
-   ss sync local prod --dry-run
-   ss sync local prod
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js sync local prod --dry-run
+   node /Users/thores/.pi/agent/skills/solosprinter/cli/ss.js sync local prod
    ```
 
 ---

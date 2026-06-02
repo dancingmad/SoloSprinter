@@ -161,6 +161,12 @@ function createTask(boardId, fields) {
     updated: now,
     description: fields.description || ''
   };
+  if (fields.extraLabels && fields.extraLabels.length > 0) {
+    taskData.extraLabels = fields.extraLabels;
+  }
+  if (fields.priority != null) {
+    taskData.priority = fields.priority;
+  }
   if (fields.roadmapMonths && fields.roadmapMonths.length > 0) {
     taskData.roadmapMonths = fields.roadmapMonths;
   }
