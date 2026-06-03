@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Button, Typography, Modal, Input } from 'antd'
+import { Button, Typography, Modal, Input, Segmented } from 'antd'
 import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
 import TaskModal from './TaskModal'
 
@@ -72,7 +72,7 @@ function taskColRange(roadmapMonths, visibleMonths) {
   const taskFirst = sorted[0]
   const taskLast  = sorted[sorted.length - 1]
   const winFirst  = visibleMonths[0]
-  const winLast   = visibleMonths[11]
+  const winLast   = visibleMonths[visibleMonths.length - 1]
 
   if (taskLast < winFirst || taskFirst > winLast) return null
 
@@ -109,6 +109,7 @@ export default function RoadmapBoard({
   const [pendingAdd, setPendingAdd]     = useState(null)  // { swimlane } awaiting title
   const [pendingTitle, setPendingTitle] = useState('')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [zoomMonths, setZoomMonths]       = useState(12)
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -124,18 +125,24 @@ export default function RoadmapBoard({
   const gridRef        = useRef(null)
 
   const visibleMonths = useMemo(
-    () => Array.from({ length: 12 }, (_, i) => addMonths(viewStart, i)),
-    [viewStart],
+    () => Array.from({ length: zoomMonths }, (_, i) => addMonths(viewStart, i)),
+    [viewStart, zoomMonths],
   )
 
-  const quarterGroups = useMemo(() =>
-    [0, 1, 2, 3].map(i => ({
-      months:    visibleMonths.slice(i * 3, i * 3 + 3),
-      colorIdx:  quarterIndex(visibleMonths[i * 3]),
-      label:     quarterLabel(visibleMonths[i * 3]),
-    })),
-    [visibleMonths],
-  )
+  // Quarter-group headers: consecutive months that share the same calendar quarter
+  // are merged into one spanning cell. Works for any zoom level.
+  const quarterGroups = useMemo(() => {
+    const groups = []
+    let i = 0
+    while (i < visibleMonths.length) {
+      const label    = quarterLabel(visibleMonths[i])
+      const colorIdx = quarterIndex(visibleMonths[i])
+      const startIdx = i
+      while (i < visibleMonths.length && quarterLabel(visibleMonths[i]) === label) i++
+      groups.push({ label, colorIdx, startIdx, span: i - startIdx })
+    }
+    return groups
+  }, [visibleMonths])
 
   const getEffectiveMonths = useCallback((task) => {
     if (dragPreview && dragPreview.taskId === task.id) return dragPreview.months
@@ -289,9 +296,19 @@ export default function RoadmapBoard({
     return items
   }, [swimlanes, labels, filteredTasks, getEffectiveMonths, swimlaneMode, compactView])
 
-  // ── render ─────────────────────────────────────────────────────────────────
+  // Navigation step: 1 month in 4-month view, 1 quarter in 12-month view
+  const navStep = zoomMonths === 4 ? 1 : 3
 
-  const headerRange = `${quarterLabel(visibleMonths[0])} – ${quarterLabel(visibleMonths[9])}`
+  // Range label shown between the prev/next buttons
+  const headerRange = (() => {
+    const first = visibleMonths[0]
+    const last  = visibleMonths[visibleMonths.length - 1]
+    const [fy, fm] = first.split('-').map(Number)
+    const [ly, lm] = last.split('-').map(Number)
+    return fy === ly
+      ? `${MONTH_NAMES[fm - 1]} – ${MONTH_NAMES[lm - 1]} ${fy}`
+      : `${MONTH_NAMES[fm - 1]} ${fy} – ${MONTH_NAMES[lm - 1]} ${ly}`
+  })()
 
   return (
     <div style={isFullscreen ? {
@@ -304,20 +321,28 @@ export default function RoadmapBoard({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
         <Button
           icon={<LeftOutlined />}
-          onClick={() => setViewStart(v => addMonths(v, -3))}
+          onClick={() => setViewStart(v => addMonths(v, -navStep))}
         >
-          Prev quarter
+          {zoomMonths === 4 ? 'Prev month' : 'Prev quarter'}
         </Button>
-        <Typography.Text strong style={{ minWidth: 260, textAlign: 'center', display: 'inline-block' }}>
+        <Typography.Text strong style={{ minWidth: 220, textAlign: 'center', display: 'inline-block' }}>
           {headerRange}
         </Typography.Text>
         <Button
           iconPosition="end"
           icon={<RightOutlined />}
-          onClick={() => setViewStart(v => addMonths(v, 3))}
+          onClick={() => setViewStart(v => addMonths(v, navStep))}
         >
-          Next quarter
+          {zoomMonths === 4 ? 'Next month' : 'Next quarter'}
         </Button>
+        <Segmented
+          value={zoomMonths}
+          onChange={setZoomMonths}
+          options={[
+            { label: '4 months', value: 4 },
+            { label: '12 months', value: 12 },
+          ]}
+        />
         <div style={{ flex: 1 }} />
         <Button
           icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
@@ -333,7 +358,7 @@ export default function RoadmapBoard({
         ref={gridRef}
         style={{
           display: 'grid',
-          gridTemplateColumns: `${ROW_HEADER_WIDTH}px repeat(12, minmax(56px, 1fr))`,
+          gridTemplateColumns: `${ROW_HEADER_WIDTH}px repeat(${zoomMonths}, minmax(56px, 1fr))`,
           border: '1px solid #e8e8e8',
           overflowX: 'auto',
           overflowY: 'auto',
@@ -348,7 +373,7 @@ export default function RoadmapBoard({
           return (
             <div key={i} style={{
               ...stickyTH,
-              gridColumn: `${i * 3 + 2} / ${i * 3 + 5}`,
+              gridColumn: `${qg.startIdx + 2} / ${qg.startIdx + qg.span + 2}`,
               gridRow: 1,
               background: p.bg,
               borderBottom: `2px solid ${p.border}`,
@@ -391,7 +416,7 @@ export default function RoadmapBoard({
           if (item.type === 'swimlane-header') {
             return (
               <div key={`sl-${item.swimlane}`} style={{
-                gridColumn: '1 / 14',
+                gridColumn: `1 / ${zoomMonths + 2}`,
                 gridRow: item.gridRow,
                 background: '#f0f2f5',
                 borderBottom: '1px solid #d9d9d9',
@@ -410,7 +435,7 @@ export default function RoadmapBoard({
           if (item.type === 'label-header') {
             return (
               <div key={`lh-${item.label}`} style={{
-                gridColumn: '1 / 14',
+                gridColumn: `1 / ${zoomMonths + 2}`,
                 gridRow: item.gridRow,
                 background: '#e6f4ff',
                 borderBottom: '1px solid #91caff',

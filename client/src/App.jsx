@@ -231,6 +231,59 @@ export default function App() {
     return new Set(result.map(t => t.id))
   }, [tasks, filters])
 
+  // ── Label taxonomy derived from tasks ────────────────────────────────────
+  // Primary labels  = values used as task.label on at least one task.
+  // Extra labels    = values found only in task.extraLabels (never used as a primary label).
+  // If a label appears in both places it is treated as primary-only to avoid confusion.
+  const primaryLabels = useMemo(
+    () => [...new Set(tasks.map(t => t.label).filter(Boolean))],
+    [tasks]
+  )
+  const primaryLabelSet = useMemo(() => new Set(primaryLabels), [primaryLabels])
+
+  const extraLabelsOnly = useMemo(() => {
+    const raw = tasks.flatMap(t => (t.extraLabels || []).filter(l => !primaryLabelSet.has(l)))
+    return [...new Set(raw)]
+  }, [tasks, primaryLabelSet])
+
+  // ── Bulk label states (three per label): selected / semi / unselected ────────────────────────
+  //
+  // Primary labels:
+  //   selected      – ALL selected tasks have this as their task.label
+  //   semi-selected – SOME (but not all) selected tasks have it as task.label
+  //   unselected    – no selected task has it as task.label
+  //
+  // Extra labels:
+  //   selected      – ALL selected tasks carry it in their extraLabels
+  //   semi-selected – SOME (but not all) selected tasks carry it in their extraLabels
+  //   unselected    – no selected task carries it
+
+  const { bulkActivePrimaryLabels, bulkSemiPrimaryLabels } = useMemo(() => {
+    if (selectedTaskIds.size === 0) return { bulkActivePrimaryLabels: [], bulkSemiPrimaryLabels: [] }
+    const selected = tasks.filter(t => selectedTaskIds.has(t.id))
+    const active = []
+    const semi   = []
+    for (const label of primaryLabels) {
+      const count = selected.filter(t => t.label === label).length
+      if (count === selected.length) active.push(label)
+      else if (count > 0)            semi.push(label)
+    }
+    return { bulkActivePrimaryLabels: active, bulkSemiPrimaryLabels: semi }
+  }, [selectedTaskIds, tasks, primaryLabels])
+
+  const { bulkActiveExtraLabels, bulkSemiExtraLabels } = useMemo(() => {
+    if (selectedTaskIds.size === 0) return { bulkActiveExtraLabels: [], bulkSemiExtraLabels: [] }
+    const selected = tasks.filter(t => selectedTaskIds.has(t.id))
+    const active = []
+    const semi   = []
+    for (const label of extraLabelsOnly) {
+      const count = selected.filter(t => (t.extraLabels || []).includes(label)).length
+      if (count === selected.length) active.push(label)
+      else if (count > 0)            semi.push(label)
+    }
+    return { bulkActiveExtraLabels: active, bulkSemiExtraLabels: semi }
+  }, [selectedTaskIds, tasks, extraLabelsOnly])
+
   // Board management
   const handleCreateBoard = async (name) => {
     const board = await createBoard(name)
@@ -276,12 +329,15 @@ export default function App() {
     setSelectedTaskIds(new Set(filteredTaskIds))
   }, [filteredTaskIds])
 
+  // ── Bulk extra-label toggle ───────────────────────────────────────────────────────────────────
+  // Selected (all have it)     → remove from all
+  // Semi/Unselected            → add to tasks that don't already carry it
+  //                              (skip tasks where it's the primary label to avoid duplication)
   const handleBulkLabelToggle = async (label) => {
     const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id))
     if (selectedTasks.length === 0 || !label) return
 
-    // Smart toggle: check both label and extraLabels for the "has" decision
-    const hasLabel = (t) => t.label === label || (t.extraLabels || []).includes(label)
+    const hasLabel     = (t) => (t.extraLabels || []).includes(label)
     const allHaveLabel = selectedTasks.every(hasLabel)
 
     // Ensure label exists in board config when adding
@@ -291,19 +347,42 @@ export default function App() {
 
     const updates = selectedTasks.map(t => {
       const currentExtra = t.extraLabels || []
-      let newExtra
       if (allHaveLabel) {
-        // Remove from extraLabels (primary label field is intentionally untouched)
-        newExtra = currentExtra.filter(l => l !== label)
+        // Selected → remove
+        return { id: t.id, extraLabels: currentExtra.filter(l => l !== label) }
       } else {
-        // Only add to extraLabels if not already present anywhere
-        if (hasLabel(t)) return null
-        newExtra = [...currentExtra, label]
+        // Semi or Unselected → add to tasks that don't have it yet
+        if (hasLabel(t)) return null           // already has it — skip
+        if (t.label === label) return null     // already the primary label — skip (no duplication)
+        return { id: t.id, extraLabels: [...currentExtra, label] }
       }
-      return { id: t.id, extraLabels: newExtra }
     }).filter(Boolean)
 
     if (updates.length === 0) return
+
+    const updatedTasks = await bulkUpdateTasks(activeBoard.id, updates)
+    if (Array.isArray(updatedTasks)) {
+      const map = new Map(updatedTasks.map(t => [t.id, t]))
+      setTasks(prev => prev.map(t => map.has(t.id) ? map.get(t.id) : t))
+    }
+  }
+
+  // ── Bulk primary-label toggle ─────────────────────────────────────────────────────────────────
+  // Selected (all have it)     → clear primary label on all selected tasks
+  // Semi/Unselected            → set as primary label on all selected tasks
+  //                              (clears their existing primary; removes from extraLabels)
+  const handleBulkPrimaryLabelToggle = async (label) => {
+    const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id))
+    if (selectedTasks.length === 0 || !label) return
+
+    const allHave = selectedTasks.every(t => t.label === label)
+    const updates = selectedTasks.map(t => ({
+      id: t.id,
+      // Selected → clear; Semi/Unselected → assign (replacing whatever primary they had)
+      label: allHave ? '' : label,
+      // When promoting to primary, scrub it from extraLabels to prevent duplication
+      extraLabels: (t.extraLabels || []).filter(l => l !== label),
+    }))
 
     const updatedTasks = await bulkUpdateTasks(activeBoard.id, updates)
     if (Array.isArray(updatedTasks)) {
@@ -451,6 +530,13 @@ export default function App() {
                 selectedCount={selectedTaskIds.size}
                 onClearSelection={handleClearSelection}
                 onSelectAll={handleSelectAll}
+                primaryLabels={primaryLabels}
+                extraLabelsOnly={extraLabelsOnly}
+                bulkActivePrimaryLabels={bulkActivePrimaryLabels}
+                bulkSemiPrimaryLabels={bulkSemiPrimaryLabels}
+                bulkActiveExtraLabels={bulkActiveExtraLabels}
+                bulkSemiExtraLabels={bulkSemiExtraLabels}
+                onBulkPrimaryLabelToggle={handleBulkPrimaryLabelToggle}
                 onBulkLabelToggle={handleBulkLabelToggle}
               />
               <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>

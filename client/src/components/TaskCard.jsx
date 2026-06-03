@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Card, Tag, Typography, Progress, Checkbox } from 'antd'
+import { Card, Tag, Typography, Progress } from 'antd'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import ReactMarkdown from 'react-markdown'
@@ -18,12 +18,14 @@ function countSubtasks(description) {
   if (!description) return { total: 0, done: 0 }
   const lines = description.split('\n')
   const total = lines.filter(l => /\[ \]|\[x\]/i.test(l)).length
-  const done = lines.filter(l => /\[x\]/i.test(l)).length
+  const done  = lines.filter(l => /\[x\]/i.test(l)).length
   return { total, done }
 }
 
 export default function TaskCard({ task, onClick, compactView, swimlaneMode = true, selected = false, onToggleSelect }) {
-  const [hovered, setHovered] = useState(false)
+  const [hovered,      setHovered]      = useState(false)
+  const [titleHovered, setTitleHovered] = useState(false)
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task }
@@ -32,17 +34,16 @@ export default function TaskCard({ task, onClick, compactView, swimlaneMode = tr
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
-    cursor: 'grab',
+    opacity:  isDragging ? 0.4 : 1,
+    cursor:   'grab',
     marginBottom: 8,
     width: '100%',
-    zIndex: hovered ? 10 : undefined,
-    position: hovered ? 'relative' : undefined
+    zIndex:   hovered ? 10 : undefined,
+    position: hovered ? 'relative' : undefined,
   }
 
   const { total, done } = useMemo(() => countSubtasks(task.description), [task.description])
 
-  // Strip subtask markers for preview; truncate only when not hovered
   const fullPreviewText = useMemo(() => {
     if (!task.description) return ''
     return task.description
@@ -53,66 +54,95 @@ export default function TaskCard({ task, onClick, compactView, swimlaneMode = tr
 
   const previewText = hovered ? fullPreviewText : fullPreviewText.slice(0, 200)
 
-  const handleCardClick = (e) => {
-    // Ctrl/Cmd+click toggles selection without opening the modal
-    if (onToggleSelect && (e.ctrlKey || e.metaKey)) {
-      e.stopPropagation()
-      onToggleSelect(task.id)
-      return
-    }
-    onClick(e)
-  }
-
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setTitleHovered(false) }}
+    >
       <Card
         size="small"
         hoverable
-        onClick={handleCardClick}
+        onClick={
+          onToggleSelect
+            // Selection mode (Kanban): body click = toggle; title click handled separately
+            ? (e) => { e.stopPropagation(); onToggleSelect(task.id) }
+            // Normal mode: whole card opens the modal
+            : onClick
+        }
         style={{
           width: '100%',
-          boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.2)' : hovered ? '0 6px 20px rgba(0,0,0,0.18)' : undefined,
-          border: selected ? '2px solid #1677ff' : undefined,
+          boxShadow: isDragging
+            ? '0 4px 12px rgba(0,0,0,0.2)'
+            : hovered ? '0 6px 20px rgba(0,0,0,0.18)' : undefined,
+          border:     selected ? '2px solid #1677ff' : undefined,
           background: selected ? '#f0f8ff' : undefined,
         }}
         styles={{ body: { padding: '8px 10px' } }}
       >
-        {/* Title row with optional selection checkbox */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          {onToggleSelect && (
-            <Checkbox
-              checked={selected}
-              onClick={e => e.stopPropagation()}
-              onChange={() => onToggleSelect(task.id)}
+        {/* ── Title row ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          {onToggleSelect ? (
+            /*
+             * Selection mode: title is a "link".
+             * – Hovering the title shows an underline (signals it opens the modal).
+             * – Clicking the title opens the modal (stopPropagation prevents body-click toggle).
+             * – Clicking anywhere else on the card body toggles selection (Card onClick above).
+             */
+            <span
+              onMouseEnter={() => setTitleHovered(true)}
+              onMouseLeave={() => setTitleHovered(false)}
+              onClick={e => { e.stopPropagation(); onClick(e) }}
               style={{
-                marginRight: 6,
-                flexShrink: 0,
-                opacity: hovered || selected ? 1 : 0,
-                transition: 'opacity 0.15s',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                textDecoration: titleHovered ? 'underline' : 'none',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flex: 1,
+                minWidth: 0,
               }}
-            />
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1, minWidth: 0 }}>
-            <Typography.Text strong style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            >
+              {task.title || <span style={{ color: '#bbb', fontWeight: 'normal' }}>Untitled</span>}
+            </span>
+          ) : (
+            <Typography.Text
+              strong
+              style={{ fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
               {task.title || <span style={{ color: '#bbb' }}>Untitled</span>}
             </Typography.Text>
-            {task.priority !== undefined && task.priority !== null && (
-              <span style={{ fontSize: 11, color: '#aaa', marginLeft: 6, flexShrink: 0 }}>#{task.priority + 1}</span>
-            )}
-          </div>
+          )}
+
+          {task.priority !== undefined && task.priority !== null && (
+            <span style={{ fontSize: 11, color: '#aaa', marginLeft: 6, flexShrink: 0 }}>
+              #{task.priority + 1}
+            </span>
+          )}
         </div>
 
         {!compactView && previewText && (
-          <div style={{ fontSize: 12, color: '#555', maxHeight: hovered ? 400 : 60, overflow: hovered ? 'auto' : 'hidden', marginBottom: 4, transition: 'max-height 0.25s ease' }}>
+          <div style={{
+            fontSize: 12,
+            color: '#555',
+            maxHeight: hovered ? 400 : 60,
+            overflow: hovered ? 'auto' : 'hidden',
+            marginBottom: 4,
+            transition: 'max-height 0.25s ease',
+          }}>
             <ReactMarkdown>{previewText}</ReactMarkdown>
           </div>
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-          {/* In swimlane-row mode show the primary label; hide it in label-row mode (redundant) */}
-          {swimlaneMode && task.label &&
+          {swimlaneMode && task.label && (
             <Tag color={labelColor(task.label)} style={{ fontSize: 11, margin: 0 }}>{task.label}</Tag>
-          }
+          )}
           {(task.extraLabels || []).map(lbl => (
             <Tag key={lbl} color={labelColor(lbl)} style={{ fontSize: 11, margin: 0 }}>{lbl}</Tag>
           ))}

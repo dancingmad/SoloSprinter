@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
-import { Row, Col, Switch, Select, InputNumber, Space, Typography, Segmented, Button, AutoComplete } from 'antd'
+import React from 'react'
+import { Row, Col, Switch, Select, InputNumber, Space, Typography, Segmented, Button, Tooltip } from 'antd'
 import { TableOutlined, CalendarOutlined, UnorderedListOutlined, CheckSquareOutlined, CloseOutlined } from '@ant-design/icons'
+import LabelPills from './LabelPills'
 
 const DAYS_OPTIONS = [
-  { label: 'Today', value: 1 },
-  { label: 'Last 7 days', value: 7 },
-  { label: 'Last 30 days', value: 30 },
-  { label: 'Last 90 days', value: 90 },
+  { label: 'Today',       value: 1  },
+  { label: 'Last 7 days', value: 7  },
+  { label: 'Last 30 days',value: 30 },
+  { label: 'Last 90 days',value: 90 },
 ]
 
 export default function FilterBar({
@@ -19,10 +20,17 @@ export default function FilterBar({
   selectedCount,
   onClearSelection,
   onSelectAll,
+  // Primary-label pills (radio-like: only one active at a time per task)
+  primaryLabels,
+  bulkActivePrimaryLabels,   // labels ALL selected tasks share as primary
+  bulkSemiPrimaryLabels,     // labels SOME (not all) selected tasks have as primary
+  onBulkPrimaryLabelToggle,
+  // Extra-label pills (multi-select)
+  extraLabelsOnly,
+  bulkActiveExtraLabels,     // labels ALL selected tasks carry in extraLabels
+  bulkSemiExtraLabels,       // labels SOME (not all) selected tasks carry in extraLabels
   onBulkLabelToggle,
 }) {
-  const [bulkLabel, setBulkLabel] = useState(null)
-
   return (
     <div style={{ marginBottom: 16 }}>
       {/* ── Main filter row ── */}
@@ -51,28 +59,23 @@ export default function FilterBar({
           </Space>
         </Col>
 
-        <Col>
-          <Space>
-            <Typography.Text>Labels:</Typography.Text>
-            {/*
-              Empty = all tasks visible (no filtering).
-              Picking labels shows only tasks that carry at least one of them.
-              To hide "Archived", select every label except "Archived".
-              maxTagCount="responsive" keeps the chip list compact: it collapses
-              overflow into "+N more" and the full list is shown when focused.
-            */}
+        {/* Label filter — multi-select dropdown */}
+        {labels.length > 0 && (
+          <Col style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text style={{ whiteSpace: 'nowrap' }}>Labels:</Typography.Text>
             <Select
               mode="multiple"
               allowClear
               placeholder="All labels"
-              style={{ minWidth: 180, maxWidth: 340 }}
+              style={{ minWidth: 160, maxWidth: 320 }}
               value={filters.labelsInclude}
-              onChange={vals => onFiltersChange({ ...filters, labelsInclude: vals || [] })}
+              onChange={val => onFiltersChange({ ...filters, labelsInclude: val || [] })}
               options={labels.map(l => ({ label: l, value: l }))}
-              maxTagCount="responsive"
+              maxTagCount={1}
+              maxTagPlaceholder={omitted => `+${omitted.length} more`}
             />
-          </Space>
-        </Col>
+          </Col>
+        )}
 
         <Col>
           <Space>
@@ -114,73 +117,64 @@ export default function FilterBar({
         )}
       </Row>
 
-      {/* ── Bulk action bar — visible only when tasks are selected ── */}
+      {/*
+        ── Bulk action bar ──
+        Shown only when at least one task is selected.
+
+        Each label pill has THREE states:
+          Selected      – ALL selected tasks share this label  → full bg + thin border
+          Semi-selected – SOME tasks have it, others don't     → muted bg + thick border
+          Unselected    – NO selected task has this label      → muted bg + thin border
+
+        Clicking:
+          Selected      → remove the label from all selected tasks
+          Semi/Unselected (primary)  → set as primary label for all selected tasks
+                                       (clears their previous primary)
+          Semi/Unselected (extra)    → add to the tasks that don't already have it
+      */}
       {selectedCount > 0 && (
-        <Row
-          align="middle"
-          style={{
-            marginTop: 8,
-            padding: '6px 12px',
-            background: '#e6f4ff',
-            border: '1px solid #91caff',
-            borderRadius: 6,
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
-        >
-          <Col>
-            <Typography.Text strong style={{ color: '#0958d9' }}>
-              {selectedCount} task{selectedCount !== 1 ? 's' : ''} selected
-            </Typography.Text>
-          </Col>
-
-          <Col>
-            <Space>
-              {/*
-                AutoComplete allows picking an existing label or typing a new one.
-                The smart toggle is evaluated in App.jsx:
-                  • if ALL selected tasks already have this label  → remove it from all
-                  • otherwise                                       → add it to all
-              */}
-              <AutoComplete
-                placeholder="Pick or type a label…"
-                style={{ minWidth: 180 }}
-                value={bulkLabel}
-                onChange={val => setBulkLabel(val || null)}
-                options={labels.map(l => ({ value: l }))}
-                filterOption={(input, option) =>
-                  option.value.toLowerCase().includes(input.toLowerCase())
-                }
-                allowClear
+        <div style={{
+          marginTop: 8,
+          padding: '6px 12px',
+          background: '#e6f4ff',
+          border: '1px solid #91caff',
+          borderRadius: 6,
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 10,
+        }}>
+          {(primaryLabels || []).length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Primary:</Typography.Text>
+              <LabelPills
+                labels={primaryLabels}
+                activePills={bulkActivePrimaryLabels || []}
+                semiPills={bulkSemiPrimaryLabels || []}
+                onToggle={onBulkPrimaryLabelToggle}
               />
-              <Button
-                type="primary"
-                disabled={!bulkLabel}
-                onClick={() => { onBulkLabelToggle(bulkLabel); setBulkLabel(null) }}
-              >
-                Toggle label
-              </Button>
-            </Space>
-          </Col>
+            </div>
+          )}
 
-          <Col>
-            <Button
-              icon={<CheckSquareOutlined />}
-              onClick={onSelectAll}
-            >
-              Select all visible
-            </Button>
-          </Col>
+          {(extraLabelsOnly || []).length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Labels:</Typography.Text>
+              <LabelPills
+                labels={extraLabelsOnly}
+                activePills={bulkActiveExtraLabels || []}
+                semiPills={bulkSemiExtraLabels || []}
+                onToggle={onBulkLabelToggle}
+              />
+            </div>
+          )}
 
-          <Col>
-            <Button
-              icon={<CloseOutlined />}
-              onClick={() => { onClearSelection(); setBulkLabel(null) }}
-            >
-              Clear selection
-            </Button>
-          </Col>
-        </Row>
+          <Tooltip title="Select all visible">
+            <Button type="text" size="small" icon={<CheckSquareOutlined />} onClick={onSelectAll} />
+          </Tooltip>
+          <Tooltip title="Clear selection">
+            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClearSelection} />
+          </Tooltip>
+        </div>
       )}
     </div>
   )
