@@ -8,11 +8,11 @@ import FilterBar from './components/FilterBar'
 import BoardPicker from './components/BoardPicker'
 import {
   fetchBoards, createBoard, deleteBoard, renameBoard,
-  fetchTasks, fetchStates, fetchSwimlanes, fetchLabels,
+  fetchTasks, fetchStates, fetchSwimlanes,
+  fetchArchivedSwimlanes, archiveSwimlane, restoreSwimlane,
   createTask, updateTask, deleteTask, bulkUpdateTasks,
   addState, deleteState, reorderStates,
   addSwimlane, deleteSwimlane, reorderSwimlanes,
-  addLabel, deleteLabel
 } from './api'
 
 const { Header, Content } = Layout
@@ -80,7 +80,7 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [states, setStates] = useState([])
   const [swimlanes, setSwimlanes] = useState([])
-  const [labels, setLabels] = useState([])
+  const [archivedSwimlanes, setArchivedSwimlanes] = useState([])
   const [loading, setLoading] = useState(true)
   const [boardLoading, setBoardLoading] = useState(false)
   const [swimlaneMode, setSwimlaneMode] = useState(true)
@@ -88,6 +88,7 @@ export default function App() {
   const [compactView, setCompactView] = useState(false)
   const [filters, setFilters] = useState({ labelsInclude: [], daysOld: null, maxPerColumn: null })
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set())
+  const [archivedMode, setArchivedMode] = useState(false)
   const [roadmapViewStart, setRoadmapViewStart] = useState(defaultViewStart)
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -99,16 +100,16 @@ export default function App() {
   const loadBoard = useCallback(async (board, urlState = {}) => {
     setBoardLoading(true)
     try {
-      const [t, s, sw, lb] = await Promise.all([
+      const [t, s, sw, asw] = await Promise.all([
         fetchTasks(board.id),
         fetchStates(board.id),
         fetchSwimlanes(board.id),
-        fetchLabels(board.id)
+        fetchArchivedSwimlanes(board.id),
       ])
       setTasks(t)
       setStates(s)
       setSwimlanes(sw)
-      setLabels(lb)
+      setArchivedSwimlanes(asw || [])
       setActiveBoard(board)
       setSwimlaneMode(urlState.swimlaneMode !== undefined ? urlState.swimlaneMode : true)
       setViewMode(urlState.viewMode || 'kanban')
@@ -208,14 +209,23 @@ export default function App() {
     return () => clearInterval(interval)
   }, [activeBoard?.id])
 
-  // Clear selection when switching boards or views
+  // Clear selection (and exit archive mode) when switching boards or views
   useEffect(() => {
     setSelectedTaskIds(new Set())
+    setArchivedMode(false)
   }, [activeBoard?.id, viewMode])
+
+  // In normal mode hide archived tasks AND tasks in archived swimlanes; in archived mode show all.
+  const visibleTasks = useMemo(
+    () => archivedMode
+      ? tasks
+      : tasks.filter(t => !t.archived && !archivedSwimlanes.includes(t.swimlane)),
+    [tasks, archivedMode, archivedSwimlanes]
+  )
 
   // IDs of tasks that survive the current filters (used for "Select all visible")
   const filteredTaskIds = useMemo(() => {
-    let result = tasks
+    let result = visibleTasks
     if (filters.labelsInclude && filters.labelsInclude.length > 0) {
       result = result.filter(t => {
         const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
@@ -229,22 +239,22 @@ export default function App() {
       result = result.filter(t => t.updated && new Date(t.updated).getTime() >= cutoff.getTime())
     }
     return new Set(result.map(t => t.id))
-  }, [tasks, filters])
+  }, [visibleTasks, filters])
 
   // ── Label taxonomy derived from tasks ────────────────────────────────────
   // Primary labels  = values used as task.label on at least one task.
   // Extra labels    = values found only in task.extraLabels (never used as a primary label).
   // If a label appears in both places it is treated as primary-only to avoid confusion.
   const primaryLabels = useMemo(
-    () => [...new Set(tasks.map(t => t.label).filter(Boolean))],
-    [tasks]
+    () => [...new Set(visibleTasks.map(t => t.label).filter(Boolean))],
+    [visibleTasks]
   )
   const primaryLabelSet = useMemo(() => new Set(primaryLabels), [primaryLabels])
 
   const extraLabelsOnly = useMemo(() => {
-    const raw = tasks.flatMap(t => (t.extraLabels || []).filter(l => !primaryLabelSet.has(l)))
+    const raw = visibleTasks.flatMap(t => (t.extraLabels || []).filter(l => !primaryLabelSet.has(l)))
     return [...new Set(raw)]
-  }, [tasks, primaryLabelSet])
+  }, [visibleTasks, primaryLabelSet])
 
   // ── Bulk label states (three per label): selected / semi / unselected ────────────────────────
   //
@@ -340,11 +350,6 @@ export default function App() {
     const hasLabel     = (t) => (t.extraLabels || []).includes(label)
     const allHaveLabel = selectedTasks.every(hasLabel)
 
-    // Ensure label exists in board config when adding
-    if (!allHaveLabel && !labels.includes(label)) {
-      await handleAddLabel(label)
-    }
-
     const updates = selectedTasks.map(t => {
       const currentExtra = t.extraLabels || []
       if (allHaveLabel) {
@@ -378,9 +383,7 @@ export default function App() {
     const allHave = selectedTasks.every(t => t.label === label)
     const updates = selectedTasks.map(t => ({
       id: t.id,
-      // Selected → clear; Semi/Unselected → assign (replacing whatever primary they had)
       label: allHave ? '' : label,
-      // When promoting to primary, scrub it from extraLabels to prevent duplication
       extraLabels: (t.extraLabels || []).filter(l => l !== label),
     }))
 
@@ -389,6 +392,32 @@ export default function App() {
       const map = new Map(updatedTasks.map(t => [t.id, t]))
       setTasks(prev => prev.map(t => map.has(t.id) ? map.get(t.id) : t))
     }
+  }
+
+  // Archive selected tasks (sets archived:true on all selected)
+  const handleArchiveSelected = async () => {
+    const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id))
+    if (selectedTasks.length === 0) return
+    const updates = selectedTasks.map(t => ({ id: t.id, archived: true }))
+    const updatedTasks = await bulkUpdateTasks(activeBoard.id, updates)
+    if (Array.isArray(updatedTasks)) {
+      const map = new Map(updatedTasks.map(t => [t.id, t]))
+      setTasks(prev => prev.map(t => map.has(t.id) ? map.get(t.id) : t))
+    }
+    setSelectedTaskIds(new Set())
+  }
+
+  // Restore selected tasks (clears archived flag; active tasks in selection are left untouched)
+  const handleRestoreSelected = async () => {
+    const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id) && t.archived)
+    if (selectedTasks.length === 0) { setSelectedTaskIds(new Set()); return }
+    const updates = selectedTasks.map(t => ({ id: t.id, archived: false }))
+    const updatedTasks = await bulkUpdateTasks(activeBoard.id, updates)
+    if (Array.isArray(updatedTasks)) {
+      const map = new Map(updatedTasks.map(t => [t.id, t]))
+      setTasks(prev => prev.map(t => map.has(t.id) ? map.get(t.id) : t))
+    }
+    setSelectedTaskIds(new Set())
   }
 
   // Task handlers
@@ -453,18 +482,22 @@ export default function App() {
     await reorderSwimlanes(activeBoard.id, order)
   }
 
-  // Label handlers
-  const handleAddLabel = async (name) => {
-    const result = await addLabel(activeBoard.id, name)
-    if (result.error) { messageApi.error(result.error); return }
-    setLabels(result)
+  const handleArchiveSwimlane = async (name) => {
+    const result = await archiveSwimlane(activeBoard.id, name)
+    if (!result.error) setArchivedSwimlanes(Array.isArray(result) ? result : [])
   }
 
-  const handleDeleteLabel = async (name) => {
-    const result = await deleteLabel(activeBoard.id, name)
-    if (result.error) { messageApi.error(result.error); return }
-    setLabels(result)
+  const handleRestoreSwimlane = async (name) => {
+    const result = await restoreSwimlane(activeBoard.id, name)
+    if (!result.error) setArchivedSwimlanes(Array.isArray(result) ? result : [])
   }
+
+  // Labels are derived from visible tasks — no separate config list needed.
+  // visibleTasks already respects archivedMode and archivedSwimlanes.
+  const derivedLabels = useMemo(
+    () => [...new Set(visibleTasks.flatMap(t => [t.label, ...(t.extraLabels || [])]).filter(Boolean))],
+    [visibleTasks]
+  )
 
   return (
     <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
@@ -518,7 +551,7 @@ export default function App() {
           ) : (
             <>
               <FilterBar
-                labels={[...new Set([...labels, ...tasks.map(t => t.label), ...tasks.flatMap(t => t.extraLabels || [])].filter(Boolean))]}
+                labels={derivedLabels}
                 swimlaneMode={swimlaneMode}
                 onToggleSwimlaneMode={setSwimlaneMode}
                 filters={filters}
@@ -538,15 +571,19 @@ export default function App() {
                 bulkSemiExtraLabels={bulkSemiExtraLabels}
                 onBulkPrimaryLabelToggle={handleBulkPrimaryLabelToggle}
                 onBulkLabelToggle={handleBulkLabelToggle}
+                archivedMode={archivedMode}
+                onToggleArchivedMode={() => { setArchivedMode(v => !v); setSelectedTaskIds(new Set()) }}
+                onArchiveSelected={handleArchiveSelected}
+                onRestoreSelected={handleRestoreSelected}
               />
               <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
               {viewMode === 'roadmap' ? (
                 <RoadmapBoard
                   boardId={activeBoard.id}
-                  tasks={tasks}
+                  tasks={visibleTasks}
                   states={states}
                   swimlanes={swimlanes}
-                  labels={labels}
+                  labels={derivedLabels}
                   filters={filters}
                   swimlaneMode={swimlaneMode}
                   compactView={compactView}
@@ -555,35 +592,36 @@ export default function App() {
                   onCreateTask={handleCreateTask}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
-                  onAddLabel={handleAddLabel}
-                  onDeleteLabel={handleDeleteLabel}
                   selectedTaskIds={selectedTaskIds}
                   onToggleTaskSelection={handleToggleTaskSelection}
+                  archivedMode={archivedMode}
+                  archivedSwimlanes={archivedSwimlanes}
+                  onArchiveSwimlane={handleArchiveSwimlane}
+                  onRestoreSwimlane={handleRestoreSwimlane}
                 />
               ) : viewMode === 'list' ? (
                 <ListView
                   boardId={activeBoard.id}
-                  tasks={tasks}
+                  tasks={visibleTasks}
                   states={states}
                   swimlanes={swimlanes}
-                  labels={labels}
+                  labels={derivedLabels}
                   filters={filters}
                   swimlaneMode={swimlaneMode}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}
-                  onAddLabel={handleAddLabel}
-                  onDeleteLabel={handleDeleteLabel}
                   selectedTaskIds={selectedTaskIds}
                   onMergeTaskSelection={handleMergeTaskSelection}
+                  archivedMode={archivedMode}
                 />
               ) : (
                 <KanbanBoard
                   boardId={activeBoard.id}
                   compactView={compactView}
-                  tasks={tasks}
+                  tasks={visibleTasks}
                   states={states}
                   swimlanes={swimlanes}
-                  labels={labels}
+                  labels={derivedLabels}
                   swimlaneMode={swimlaneMode}
                   filters={filters}
                   onCreateTask={handleCreateTask}
@@ -596,10 +634,12 @@ export default function App() {
                   onAddSwimlane={handleAddSwimlane}
                   onDeleteSwimlane={handleDeleteSwimlane}
                   onReorderSwimlanes={handleReorderSwimlanes}
-                  onAddLabel={handleAddLabel}
-                  onDeleteLabel={handleDeleteLabel}
+                  archivedSwimlanes={archivedSwimlanes}
+                  onArchiveSwimlane={handleArchiveSwimlane}
+                  onRestoreSwimlane={handleRestoreSwimlane}
                   selectedTaskIds={selectedTaskIds}
                   onToggleTaskSelection={handleToggleTaskSelection}
+                  archivedMode={archivedMode}
                 />
               )}
               </div>

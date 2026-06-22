@@ -114,7 +114,7 @@ function labelColor(label) {
 import MDEditor from '@uiw/react-md-editor'
 import { uploadImage, imageUrl } from '../api'
 
-export default function TaskModal({ boardId, task, states, swimlanes, labels, open, onClose, onUpdate, onDelete, onModalClose }) {
+export default function TaskModal({ boardId, task, states, swimlanes, labels, open, onClose, onUpdate, onDelete, onModalClose, readOnly = false }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [label, setLabel] = useState('')
@@ -314,18 +314,32 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       footer={null}
       width="80vw"
       title={
-        <Input
-          value={title}
-          onChange={e => saveTitle(e.target.value)}
-          placeholder="Task title..."
-          variant="borderless"
-          style={{ fontSize: 18, fontWeight: 600, padding: 0 }}
-        />
+        readOnly
+          ? <span style={{ fontSize: 18, fontWeight: 600 }}>{title || '(untitled)'}</span>
+          : <Input
+              value={title}
+              onChange={e => saveTitle(e.target.value)}
+              placeholder="Task title..."
+              variant="borderless"
+              style={{ fontSize: 18, fontWeight: 600, padding: 0 }}
+            />
       }
     >
       <Space wrap style={{ marginBottom: 12 }}>
+        {readOnly && (
+          <div style={{
+            width: '100%', padding: '6px 10px', marginBottom: 4,
+            background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6,
+            color: '#d46b08', fontSize: 12,
+          }}>
+            📦 Archive view — this task is read-only. Exit archive view to make changes.
+          </div>
+        )}
         <Tag color="blue">{task.state}</Tag>
         <Tag color="green">{task.swimlane}</Tag>
+        {readOnly ? (
+          label ? <Tag>{label}</Tag> : null
+        ) : (
         <AutoComplete
           value={label}
           options={(labels || []).map(l => ({ value: l }))}
@@ -337,17 +351,19 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
             option.value.toLowerCase().includes(input.toLowerCase())
           }
         />
+        )}
         {extraLabels.map(lbl => (
           <Tag
             key={lbl}
             color={labelColor(lbl)}
-            closable
-            onClose={() => removeExtraLabel(lbl)}
+            closable={!readOnly}
+            onClose={readOnly ? undefined : () => removeExtraLabel(lbl)}
             style={{ margin: 0 }}
           >
             {lbl}
           </Tag>
         ))}
+        {!readOnly && (
         <AutoComplete
           value={extraLabelInput}
           options={(labels || [])
@@ -362,6 +378,7 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
             option.value.toLowerCase().includes(input.toLowerCase())
           }
         />
+        )}
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           Created: {task.created ? new Date(task.created).toLocaleDateString() : '—'}
         </Typography.Text>
@@ -378,8 +395,8 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       >
         <MDEditor
           value={description}
-          onChange={saveDescription}
-          preview="live"
+          onChange={readOnly ? undefined : saveDescription}
+          preview={readOnly ? 'preview' : 'live'}
           height={320}
           data-color-mode="light"
         />
@@ -439,8 +456,9 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
           placeholder="Start month"
           style={{ width: 150 }}
           value={roadmapStart || undefined}
-          onChange={handleRoadmapStart}
+          onChange={readOnly ? undefined : handleRoadmapStart}
           options={monthOptions}
+          disabled={readOnly}
           showSearch
           filterOption={(input, opt) => opt.label.toLowerCase().includes(input.toLowerCase())}
         />
@@ -450,13 +468,13 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
           placeholder="End month"
           style={{ width: 150 }}
           value={roadmapEnd || undefined}
-          disabled={!roadmapStart}
-          onChange={handleRoadmapEnd}
+          disabled={readOnly || !roadmapStart}
+          onChange={readOnly ? undefined : handleRoadmapEnd}
           options={monthOptions.filter(o => !roadmapStart || o.value >= roadmapStart)}
           showSearch
           filterOption={(input, opt) => opt.label.toLowerCase().includes(input.toLowerCase())}
         />
-        {roadmapStart && (
+        {!readOnly && roadmapStart && (
           <Button
             size="small"
             onClick={() => { setRoadmapStart(''); setRoadmapEnd(''); onUpdate(task.id, { roadmapMonths: [] }) }}
@@ -467,11 +485,13 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       </Space>
 
       <Divider />
+      {!readOnly && (
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Popconfirm title="Delete this task?" onConfirm={() => { onDelete(task.id); onClose() }} okText="Delete" okType="danger">
           <Button danger icon={<DeleteOutlined />}>Delete task</Button>
         </Popconfirm>
       </div>
+      )}
     </Modal>
   )
 }

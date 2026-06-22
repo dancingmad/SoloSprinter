@@ -1,6 +1,6 @@
 import React from 'react'
 import { Row, Col, Switch, Select, InputNumber, Space, Typography, Segmented, Button, Tooltip } from 'antd'
-import { TableOutlined, CalendarOutlined, UnorderedListOutlined, CheckSquareOutlined, CloseOutlined } from '@ant-design/icons'
+import { TableOutlined, CalendarOutlined, UnorderedListOutlined, CheckSquareOutlined, CloseOutlined, InboxOutlined, UndoOutlined } from '@ant-design/icons'
 import LabelPills from './LabelPills'
 
 const DAYS_OPTIONS = [
@@ -30,6 +30,11 @@ export default function FilterBar({
   bulkActiveExtraLabels,     // labels ALL selected tasks carry in extraLabels
   bulkSemiExtraLabels,       // labels SOME (not all) selected tasks carry in extraLabels
   onBulkLabelToggle,
+  // Archive
+  archivedMode,
+  onToggleArchivedMode,
+  onArchiveSelected,
+  onRestoreSelected,
 }) {
   return (
     <div style={{ marginBottom: 16 }}>
@@ -57,6 +62,19 @@ export default function FilterBar({
               onChange={onToggleSwimlaneMode}
             />
           </Space>
+        </Col>
+
+        {/* Archived mode toggle */}
+        <Col>
+          <Button
+            icon={<InboxOutlined />}
+            onClick={onToggleArchivedMode}
+            style={archivedMode ? {
+              background: '#fa8c16', borderColor: '#fa8c16', color: '#fff'
+            } : {}}
+          >
+            {archivedMode ? 'Exit Archive View' : 'Archived'}
+          </Button>
         </Col>
 
         {/* Label filter — multi-select dropdown */}
@@ -117,6 +135,19 @@ export default function FilterBar({
         )}
       </Row>
 
+      {/* Archived mode banner */}
+      {archivedMode && (
+        <div style={{
+          marginTop: 8, padding: '5px 12px',
+          background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6,
+          color: '#d46b08', fontSize: 12,
+        }}>
+          <InboxOutlined style={{ marginRight: 6 }} />
+          Archive view — showing all tasks including archived ones.
+          Select tasks and click <strong>Restore selected</strong> to bring them back.
+        </div>
+      )}
+
       {/*
         ── Bulk action bar ──
         Shown only when at least one task is selected.
@@ -144,36 +175,67 @@ export default function FilterBar({
           flexWrap: 'wrap',
           gap: 10,
         }}>
-          {(primaryLabels || []).length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Primary:</Typography.Text>
-              <LabelPills
-                labels={primaryLabels}
-                activePills={bulkActivePrimaryLabels || []}
-                semiPills={bulkSemiPrimaryLabels || []}
-                onToggle={onBulkPrimaryLabelToggle}
-              />
-            </div>
+          {archivedMode ? (
+            /* Archive view: only action is restoring the selected archived tasks */
+            <>
+              <Button
+                icon={<UndoOutlined />}
+                size="small"
+                type="primary"
+                onClick={onRestoreSelected}
+              >
+                Restore selected
+              </Button>
+              <Tooltip title="Select all visible">
+                <Button type="text" size="small" icon={<CheckSquareOutlined />} onClick={onSelectAll} />
+              </Tooltip>
+              <Tooltip title="Clear selection">
+                <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClearSelection} />
+              </Tooltip>
+            </>
+          ) : (
+            /* Normal view: label pills + archive action */
+            <>
+              {(primaryLabels || []).length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Primary:</Typography.Text>
+                  <LabelPills
+                    labels={primaryLabels}
+                    activePills={bulkActivePrimaryLabels || []}
+                    semiPills={bulkSemiPrimaryLabels || []}
+                    onToggle={onBulkPrimaryLabelToggle}
+                  />
+                </div>
+              )}
+              {(extraLabelsOnly || []).length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Labels:</Typography.Text>
+                  <LabelPills
+                    labels={extraLabelsOnly}
+                    activePills={bulkActiveExtraLabels || []}
+                    semiPills={bulkSemiExtraLabels || []}
+                    onToggle={onBulkLabelToggle}
+                  />
+                </div>
+              )}
+              <Tooltip title="Archive selected tasks">
+                <Button
+                  icon={<InboxOutlined />}
+                  size="small"
+                  danger
+                  onClick={onArchiveSelected}
+                >
+                  Archive
+                </Button>
+              </Tooltip>
+              <Tooltip title="Select all visible">
+                <Button type="text" size="small" icon={<CheckSquareOutlined />} onClick={onSelectAll} />
+              </Tooltip>
+              <Tooltip title="Clear selection">
+                <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClearSelection} />
+              </Tooltip>
+            </>
           )}
-
-          {(extraLabelsOnly || []).length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Labels:</Typography.Text>
-              <LabelPills
-                labels={extraLabelsOnly}
-                activePills={bulkActiveExtraLabels || []}
-                semiPills={bulkSemiExtraLabels || []}
-                onToggle={onBulkLabelToggle}
-              />
-            </div>
-          )}
-
-          <Tooltip title="Select all visible">
-            <Button type="text" size="small" icon={<CheckSquareOutlined />} onClick={onSelectAll} />
-          </Tooltip>
-          <Tooltip title="Clear selection">
-            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClearSelection} />
-          </Tooltip>
         </div>
       )}
     </div>

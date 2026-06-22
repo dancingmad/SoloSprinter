@@ -93,6 +93,21 @@ export async function fetchSwimlanes(boardId) {
   return r.json()
 }
 
+export async function fetchArchivedSwimlanes(boardId) {
+  const r = await fetch(`${boardBase(boardId)}/swimlanes/archived`)
+  return r.json()
+}
+
+export async function archiveSwimlane(boardId, name) {
+  const r = await fetch(`${boardBase(boardId)}/swimlanes/archive/${encodeURIComponent(name)}`, { method: 'POST' })
+  return r.json()
+}
+
+export async function restoreSwimlane(boardId, name) {
+  const r = await fetch(`${boardBase(boardId)}/swimlanes/archive/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  return r.json()
+}
+
 export async function addSwimlane(boardId, name) {
   const r = await fetch(`${boardBase(boardId)}/swimlanes`, {
     method: 'POST',

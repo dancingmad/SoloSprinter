@@ -42,7 +42,7 @@ function formatQuarters(roadmapMonths) {
   return `Q${startQ} ${startY} – Q${endQ} ${endY}`
 }
 
-export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, swimlaneMode = true, onUpdateTask, onDeleteTask, onAddLabel, onDeleteLabel, selectedTaskIds, onMergeTaskSelection }) {
+export default function ListView({ boardId, tasks, states, swimlanes, labels, filters = {}, swimlaneMode = true, onUpdateTask, onDeleteTask, selectedTaskIds, onMergeTaskSelection }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
 

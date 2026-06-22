@@ -34,7 +34,7 @@ export default function TaskCard({ task, onClick, compactView, swimlaneMode = tr
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity:  isDragging ? 0.4 : 1,
+    opacity:  isDragging ? 0.4 : (task.archived ? 0.5 : 1),
     cursor:   'grab',
     marginBottom: 8,
     width: '100%',
@@ -140,6 +140,9 @@ export default function TaskCard({ task, onClick, compactView, swimlaneMode = tr
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+          {task.archived && (
+            <Tag style={{ fontSize: 10, margin: 0, background: '#f5f5f5', borderColor: '#d9d9d9', color: '#8c8c8c' }}>📦 archived</Tag>
+          )}
           {swimlaneMode && task.label && (
             <Tag color={labelColor(task.label)} style={{ fontSize: 11, margin: 0 }}>{task.label}</Tag>
           )}

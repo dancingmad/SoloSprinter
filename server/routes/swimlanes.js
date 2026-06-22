@@ -32,6 +32,32 @@ router.put('/reorder', (req, res) => {
   res.json(config.swimlanes);
 });
 
+// GET archived swimlanes list
+router.get('/archived', (req, res) => {
+  const config = getConfig(req.params.boardId);
+  res.json(config.archivedSwimlanes || []);
+});
+
+// POST archive a swimlane (add to archivedSwimlanes; does not delete it)
+router.post('/archive/:name', (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  const config = getConfig(req.params.boardId);
+  if (!config.swimlanes.includes(name)) return res.status(404).json({ error: 'Swimlane not found' });
+  if (!config.archivedSwimlanes) config.archivedSwimlanes = [];
+  if (!config.archivedSwimlanes.includes(name)) config.archivedSwimlanes.push(name);
+  saveConfig(req.params.boardId, config);
+  res.json(config.archivedSwimlanes);
+});
+
+// DELETE restore a swimlane (remove from archivedSwimlanes)
+router.delete('/archive/:name', (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  const config = getConfig(req.params.boardId);
+  config.archivedSwimlanes = (config.archivedSwimlanes || []).filter(s => s !== name);
+  saveConfig(req.params.boardId, config);
+  res.json(config.archivedSwimlanes);
+});
+
 // DELETE swimlane (only if no tasks use it)
 router.delete('/:name', (req, res) => {
   const name = decodeURIComponent(req.params.name);

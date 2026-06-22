@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Button, Typography, Modal, Input, Segmented } from 'antd'
-import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
+import { Button, Typography, Modal, Input, Select, Tooltip } from 'antd'
+import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined, EyeInvisibleOutlined, UndoOutlined } from '@ant-design/icons'
 import TaskModal from './TaskModal'
 
 const ROW_HEADER_WIDTH = 140
@@ -12,7 +12,13 @@ function descriptionPreview(description) {
   if (!description) return ''
   const line = description.split('\n').find(l => l.trim() && !/^\s*[-*#>]/.test(l) && !/\[[ x]\]/i.test(l))
   if (!line) return ''
-  return line.trim().slice(0, 120)
+  // Strip markdown links [text](url) → text, then other inline markup
+  const stripped = line
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')  // [text](url) → text
+    .replace(/`([^`]*)`/g, '$1')               // `code` → code
+    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, '$1') // bold/italic → text
+    .trim()
+  return stripped.slice(0, 120)
 }
 
 // Quarter palette: [bg, border, text] per quarter index (0=Q1, 1=Q2, 2=Q3, 3=Q4)
@@ -86,6 +92,39 @@ function taskColRange(roadmapMonths, visibleMonths) {
   }
 }
 
+// ── State-based bar styling ─────────────────────────────────────────────────
+// Done                        → gray bar, full opacity, strikethrough title
+// WIP / Ready / Rollout / WIP → quarter colour, full opacity
+// Todo / anything else        → quarter colour, opacity fades min→0.3 over 12 months
+
+const ACTIVE_STATES = new Set(['work in progress', 'wip', 'ready', 'rollout'])
+
+function barStateStyle(task) {
+  const state = (task.state || '').toLowerCase().trim()
+
+  if (state === 'done') {
+    return { barColor: '#8c8c8c', barOpacity: 0.4, strikethrough: true }
+  }
+
+  if (ACTIVE_STATES.has(state)) {
+    return { barColor: null, barOpacity: 1, strikethrough: false }
+  }
+
+  // Todo and all other uncertain states — fade with distance from now
+  const startMonth = [...(task.roadmapMonths || [])].sort()[0]
+  if (!startMonth) return { barColor: null, barOpacity: 0.6, strikethrough: false }
+
+  const now = new Date()
+  const [sy, sm] = startMonth.split('-').map(Number)
+  const distanceMonths = (sy - now.getFullYear()) * 12 + (sm - (now.getMonth() + 1))
+
+  if (distanceMonths <= 0) return { barColor: null, barOpacity: 0.7, strikethrough: false }
+
+  // Linear fade: current month → 0.7, 12+ months away → 0.3
+  const barOpacity = Math.max(0.3, 0.7 - (distanceMonths / 12) * 0.4)
+  return { barColor: null, barOpacity, strikethrough: false }
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function RoadmapBoard({
@@ -93,12 +132,15 @@ export default function RoadmapBoard({
   filters = {},
   swimlaneMode = true,
   onCreateTask, onUpdateTask, onDeleteTask,
-  onAddLabel, onDeleteLabel,
   compactView,
   viewStart: viewStartProp,
   onViewStartChange,
   selectedTaskIds,
   onToggleTaskSelection,
+  archivedMode = false,
+  archivedSwimlanes = [],
+  onArchiveSwimlane,
+  onRestoreSwimlane,
 }) {
   const [viewStartLocal, setViewStartLocal] = useState(defaultViewStart)
   const viewStart    = viewStartProp    ?? viewStartLocal
@@ -109,7 +151,7 @@ export default function RoadmapBoard({
   const [pendingAdd, setPendingAdd]     = useState(null)  // { swimlane } awaiting title
   const [pendingTitle, setPendingTitle] = useState('')
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [zoomMonths, setZoomMonths]       = useState(12)
+  const [zoomMonths, setZoomMonths]       = useState(3)
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -152,6 +194,7 @@ export default function RoadmapBoard({
   // ── drag ──────────────────────────────────────────────────────────────────
 
   const startDrag = useCallback((e, task, type) => {
+    if (archivedMode) return  // no drag in archive view
     e.preventDefault()
     e.stopPropagation()
     draggingRef.current = {
@@ -259,8 +302,11 @@ export default function RoadmapBoard({
     let row = 3  // rows 1+2 are sticky headers
 
     if (swimlaneMode) {
-      // group by swimlane
-      for (const swimlane of swimlanes) {
+      // group by swimlane (hide archived ones in normal mode)
+      const effectiveSwimlanes = archivedMode
+        ? swimlanes
+        : swimlanes.filter(s => !archivedSwimlanes.includes(s))
+      for (const swimlane of effectiveSwimlanes) {
         const slTasks = filteredTasks.filter(t =>
           t.swimlane === swimlane && (getEffectiveMonths(t).length > 0)
         )
@@ -294,10 +340,12 @@ export default function RoadmapBoard({
     }
 
     return items
-  }, [swimlanes, labels, filteredTasks, getEffectiveMonths, swimlaneMode, compactView])
+  }, [swimlanes, labels, filteredTasks, getEffectiveMonths, swimlaneMode, compactView, archivedSwimlanes, archivedMode])
 
-  // Navigation step: 1 month in 4-month view, 1 quarter in 12-month view
-  const navStep = zoomMonths === 4 ? 1 : 3
+  // Navigation step: 1 month in 3-month view, 2 months in 6-month view, 3 months in 9/12-month view
+  const navStep      = zoomMonths === 3 ? 1 : zoomMonths === 6 ? 2 : 3
+  const prevLabel    = zoomMonths === 3 ? 'Prev month' : zoomMonths === 6 ? 'Prev 2 months' : 'Prev quarter'
+  const nextLabel    = zoomMonths === 3 ? 'Next month' : zoomMonths === 6 ? 'Next 2 months' : 'Next quarter'
 
   // Range label shown between the prev/next buttons
   const headerRange = (() => {
@@ -323,7 +371,7 @@ export default function RoadmapBoard({
           icon={<LeftOutlined />}
           onClick={() => setViewStart(v => addMonths(v, -navStep))}
         >
-          {zoomMonths === 4 ? 'Prev month' : 'Prev quarter'}
+          {prevLabel}
         </Button>
         <Typography.Text strong style={{ minWidth: 220, textAlign: 'center', display: 'inline-block' }}>
           {headerRange}
@@ -333,13 +381,16 @@ export default function RoadmapBoard({
           icon={<RightOutlined />}
           onClick={() => setViewStart(v => addMonths(v, navStep))}
         >
-          {zoomMonths === 4 ? 'Next month' : 'Next quarter'}
+          {nextLabel}
         </Button>
-        <Segmented
+        <Select
           value={zoomMonths}
           onChange={setZoomMonths}
+          style={{ width: 130 }}
           options={[
-            { label: '4 months', value: 4 },
+            { label: '3 months', value: 3 },
+            { label: '6 months', value: 6 },
+            { label: '9 months', value: 9 },
             { label: '12 months', value: 12 },
           ]}
         />
@@ -414,20 +465,36 @@ export default function RoadmapBoard({
         {/* ── Body rows ── */}
         {layoutItems.map((item) => {
           if (item.type === 'swimlane-header') {
+            const isArchived = archivedSwimlanes.includes(item.swimlane)
             return (
               <div key={`sl-${item.swimlane}`} style={{
                 gridColumn: `1 / ${zoomMonths + 2}`,
                 gridRow: item.gridRow,
-                background: '#f0f2f5',
-                borderBottom: '1px solid #d9d9d9',
-                borderTop: '1px solid #d9d9d9',
+                background: isArchived ? '#fff7e6' : '#f0f2f5',
+                borderBottom: `1px solid ${isArchived ? '#ffd591' : '#d9d9d9'}`,
+                borderTop: `1px solid ${isArchived ? '#ffd591' : '#d9d9d9'}`,
                 padding: '0 10px',
                 fontWeight: 600,
                 fontSize: 13,
                 height: TASK_ROW_HEIGHT,
-                display: 'flex', alignItems: 'center',
+                display: 'flex', alignItems: 'center', gap: 8,
               }}>
-                {item.swimlane}
+                <span style={{ flex: 1 }}>{item.swimlane}</span>
+                {isArchived ? (
+                  <Tooltip title="Restore swimlane">
+                    <Button type="text" size="small" icon={<UndoOutlined />}
+                      style={{ color: '#fa8c16' }}
+                      onClick={() => onRestoreSwimlane(item.swimlane)} />
+                  </Tooltip>
+                ) : (
+                  !archivedMode && (
+                    <Tooltip title="Archive swimlane">
+                      <Button type="text" size="small" icon={<EyeInvisibleOutlined />}
+                        style={{ color: '#8c8c8c' }}
+                        onClick={() => onArchiveSwimlane(item.swimlane)} />
+                    </Tooltip>
+                  )
+                )}
               </div>
             )
           }
@@ -468,6 +535,8 @@ export default function RoadmapBoard({
             const desc = compactView ? '' : descriptionPreview(item.task.description)
             const inView = range !== null
             const rowH = inView ? taskRowH : 0
+            const { barColor, barOpacity, strikethrough } = barStateStyle(item.task)
+            const barBg = barColor ?? Q_PALETTE[quarterIndex(months[0] ?? visibleMonths[0])].bar
 
             return (
               <React.Fragment key={`task-${item.task.id}`}>
@@ -519,10 +588,11 @@ export default function RoadmapBoard({
                       style={{
                         flex: 1,
                         height: compactView ? 26 : 46,
-                        background: Q_PALETTE[quarterIndex(months[0])].bar,
-                        opacity: isDragging ? 0.75 : 1,
+                        background: compactView ? barBg : barBg + '22',
+                        border: compactView ? undefined : `2px solid ${barBg}`,
+                        opacity: isDragging ? 0.75 : barOpacity,
                         borderRadius: range.extendsBefore ? '0 4px 4px 0' : range.extendsAfter ? '4px 0 0 4px' : 4,
-                        borderLeft:  range.extendsBefore ? '3px solid rgba(0,0,0,0.25)' : undefined,
+                        borderLeft:  range.extendsBefore ? (compactView ? '3px solid rgba(0,0,0,0.25)' : `3px solid ${barBg}`) : undefined,
                         outline: selectedTaskIds?.has(item.task.id) ? '2px solid #fff' : undefined,
                         boxShadow: selectedTaskIds?.has(item.task.id) ? '0 0 0 4px #1677ff' : '0 1px 4px rgba(0,0,0,0.18)',
                         display: 'flex',
@@ -530,7 +600,7 @@ export default function RoadmapBoard({
                         alignItems: compactView ? 'center' : 'flex-start',
                         justifyContent: compactView ? undefined : 'center',
                         padding: compactView ? '0 22px 0 8px' : '4px 22px 4px 8px',
-                        color: '#fff',
+                        color: compactView ? '#fff' : 'rgba(0,0,0,0.82)',
                         cursor: 'grab',
                         userSelect: 'none',
                         overflow: 'hidden',
@@ -553,12 +623,13 @@ export default function RoadmapBoard({
                       }}
                     >
                       <div style={{
-                        fontSize: 12,
-                        fontWeight: 500,
+                        fontSize: compactView ? 12 : 14,
+                        fontWeight: compactView ? 500 : 700,
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         width: '100%',
+                        textDecoration: strikethrough ? 'line-through' : 'none',
                       }}>
                         {item.task.title || '(untitled)'}
                       </div>
@@ -637,6 +708,7 @@ export default function RoadmapBoard({
         onUpdate={handleUpdateTask}
         onDelete={(id) => { onDeleteTask(id); setModalOpen(false) }}
         onModalClose={() => {}}
+        readOnly={archivedMode}
       />
 
       <Modal

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { Button, Input, Typography, Popconfirm, Tooltip, Modal, Tag } from 'antd'
-import { PlusOutlined, MinusOutlined, HolderOutlined } from '@ant-design/icons'
+import { PlusOutlined, MinusOutlined, HolderOutlined, EyeInvisibleOutlined, UndoOutlined } from '@ant-design/icons'
 import {
   DndContext,
   PointerSensor,
@@ -82,7 +82,8 @@ function SortableColumnHeader({ state, states, onDeleteState }) {
   )
 }
 
-function SortableRowHeader({ row, rows, swimlaneMode, NO_LABEL, onDeleteSwimlane, onDeleteLabel }) {
+function SortableRowHeader({ row, rows, swimlaneMode, NO_LABEL, onDeleteSwimlane,
+  isArchivedSwimlane, onArchiveSwimlane, onRestoreSwimlane, archivedMode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `row::${row}`,
     disabled: !swimlaneMode || row === NO_LABEL
@@ -104,16 +105,36 @@ function SortableRowHeader({ row, rows, swimlaneMode, NO_LABEL, onDeleteSwimlane
           ? <Tag color={labelColor(row)} style={{ fontSize: 12, margin: 0 }}>{row}</Tag>
           : <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{row}</Typography.Text>
         }
-        {rows.length > 1 && row !== NO_LABEL && (
-          <Popconfirm
-            title={`Delete row "${row}"?`}
-            onConfirm={() => swimlaneMode ? onDeleteSwimlane(row) : onDeleteLabel(row)}
-            okText="Delete"
-            okType="danger"
-          >
-            <Button type="text" size="small" icon={<MinusOutlined />} danger />
-          </Popconfirm>
-        )}
+        <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+          {/* Archive / restore swimlane — only in swimlane mode, not for pseudo-rows */}
+          {swimlaneMode && row !== NO_LABEL && (
+            isArchivedSwimlane ? (
+              <Tooltip title="Restore swimlane">
+                <Button type="text" size="small" icon={<UndoOutlined />}
+                  style={{ color: '#fa8c16' }}
+                  onClick={() => onRestoreSwimlane(row)} />
+              </Tooltip>
+            ) : (
+              !archivedMode && (
+                <Tooltip title="Archive swimlane">
+                  <Button type="text" size="small" icon={<EyeInvisibleOutlined />}
+                    style={{ color: '#8c8c8c' }}
+                    onClick={() => onArchiveSwimlane(row)} />
+                </Tooltip>
+              )
+            )
+          )}
+          {swimlaneMode && rows.length > 1 && row !== NO_LABEL && !archivedMode && (
+            <Popconfirm
+              title={`Delete row "${row}"?`}
+              onConfirm={() => onDeleteSwimlane(row)}
+              okText="Delete"
+              okType="danger"
+            >
+              <Button type="text" size="small" icon={<MinusOutlined />} danger />
+            </Popconfirm>
+          )}
+        </div>
       </div>
     </td>
   )
@@ -148,9 +169,12 @@ export default function KanbanBoard({
   onCreateTask, onUpdateTask, onDeleteTask,
   onAddState, onDeleteState, onReorderStates,
   onAddSwimlane, onDeleteSwimlane, onReorderSwimlanes,
-  onAddLabel, onDeleteLabel,
   onUpdateTaskPriorities,
   selectedTaskIds, onToggleTaskSelection,
+  archivedMode = false,
+  archivedSwimlanes = [],
+  onArchiveSwimlane,
+  onRestoreSwimlane,
 }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -180,13 +204,19 @@ export default function KanbanBoard({
 
   const NO_LABEL = '(No Label)'
   const rows = useMemo(() => {
-    if (swimlaneMode) return swimlanes
+    if (swimlaneMode) {
+      // In archive mode show all swimlanes (including archived); in normal mode hide archived ones
+      const effective = archivedMode
+        ? swimlanes
+        : swimlanes.filter(s => !archivedSwimlanes.includes(s))
+      return effective
+    }
     // In label mode only show rows that have at least one task after filtering.
     // (Unlike swimlane mode we don't need empty rows for drag-and-drop targets.)
     const hasNoLabel = filteredTasks.some(t => !t.label || t.label === '')
     const usedLabels = labels.filter(lbl => filteredTasks.some(t => t.label === lbl))
     return [...(hasNoLabel ? [NO_LABEL] : []), ...usedLabels]
-  }, [swimlaneMode, swimlanes, labels, filteredTasks])
+  }, [swimlaneMode, swimlanes, labels, filteredTasks, archivedMode, archivedSwimlanes])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -206,6 +236,7 @@ export default function KanbanBoard({
   }
 
   const handleCellClick = (state, row) => {
+    if (archivedMode) return  // no creating tasks in archive view
     const fields = swimlaneMode
       ? { state, swimlane: row, label: '' }
       : { state, swimlane: swimlanes[0] || 'Backlog', label: row === NO_LABEL ? '' : row }
@@ -226,6 +257,7 @@ export default function KanbanBoard({
 
   const handleDragEnd = async ({ active, over }) => {
     setActiveTask(null)
+    if (archivedMode) return  // no drag in archive view
     if (!over || active.id === over.id) return
 
     // Column reorder
@@ -314,16 +346,6 @@ export default function KanbanBoard({
 
     onUpdateTaskPriorities && onUpdateTaskPriorities(priorityUpdates)
     await updateTaskPriorities(boardId, priorityUpdates)
-
-    // In label mode, clean up labels that no longer have any tasks
-    if (!swimlaneMode && movingCell) {
-      const allTasks = tasks.map(t => t.id === task.id ? { ...t, label: newLabel } : t)
-      for (const lbl of labels) {
-        if (lbl && !allTasks.some(t => t.label === lbl)) {
-          await onDeleteLabel(lbl)
-        }
-      }
-    }
   }
 
   const openTask = (task) => {
@@ -334,33 +356,13 @@ export default function KanbanBoard({
   const handleUpdateTask = async (id, fields) => {
     const updated = await onUpdateTask(id, fields)
     if (selectedTask && selectedTask.id === id) setSelectedTask(updated)
-    // Clean up labels with no tasks after a label change
-    if ('label' in fields) {
-      const allTasks = tasks.map(t => t.id === id ? { ...t, label: fields.label } : t)
-      for (const lbl of labels) {
-        if (lbl && !allTasks.some(t => t.label === lbl)) {
-          await onDeleteLabel(lbl)
-        }
-      }
-    }
     return updated
   }
 
   const handleModalClose = async (task, newLabel) => {
-    // Save label if it changed
+    // Save primary label when modal closes (it is not auto-saved like title/description)
     if (newLabel !== (task.label || '')) {
       await onUpdateTask(task.id, { label: newLabel })
-    }
-    // Add to config if it's a new non-empty label
-    if (newLabel && !labels.includes(newLabel)) {
-      await onAddLabel(newLabel)
-    }
-    // Remove labels that no longer have any tasks
-    const allTasks = tasks.map(t => t.id === task.id ? { ...t, label: newLabel } : t)
-    for (const lbl of labels) {
-      if (lbl && !allTasks.some(t => t.label === lbl)) {
-        await onDeleteLabel(lbl)
-      }
     }
   }
 
@@ -369,7 +371,7 @@ export default function KanbanBoard({
   return (
     <>
       <DndContext
-        sensors={sensors}
+        sensors={archivedMode ? [] : sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -394,6 +396,7 @@ export default function KanbanBoard({
                       />
                     ))}
                     <th style={thStyle}>
+                      {!archivedMode && (
                       <Tooltip title="Add column">
                         <Button
                           type="dashed"
@@ -402,6 +405,7 @@ export default function KanbanBoard({
                           onClick={() => setAddStateOpen(true)}
                         />
                       </Tooltip>
+                      )}
                     </th>
                   </tr>
                 </SortableContext>
@@ -411,14 +415,19 @@ export default function KanbanBoard({
               {rows.map((row, rowIndex) => {
                 const rowBg = rowIndex % 2 === 0 ? '#f0ebfa' : '#eaf1fb'
                 return (
-                <tr key={row} style={{ background: rowBg }}>
+                <tr key={row} style={{
+                    background: archivedSwimlanes.includes(row) ? '#fff7e6' : rowBg
+                  }}>
                   <SortableRowHeader
                     row={row}
                     rows={rows}
                     swimlaneMode={swimlaneMode}
                     NO_LABEL={NO_LABEL}
                     onDeleteSwimlane={onDeleteSwimlane}
-                    onDeleteLabel={onDeleteLabel}
+                    isArchivedSwimlane={archivedSwimlanes.includes(row)}
+                    onArchiveSwimlane={onArchiveSwimlane}
+                    onRestoreSwimlane={onRestoreSwimlane}
+                    archivedMode={archivedMode}
                   />
                   {states.map(state => {
                     const cellId = `${state}||${row}`
@@ -444,7 +453,7 @@ export default function KanbanBoard({
                                 onClick={(e) => { e.stopPropagation(); openTask(task) }}
                               />
                             ))}
-                            {cellTasks.length === 0 && (
+                            {cellTasks.length === 0 && !archivedMode && (
                               <div
                                 style={{ color: '#ccc', fontSize: 12, textAlign: 'center', paddingTop: 20 }}
                                 onClick={() => handleCellClick(state, row)}
@@ -464,7 +473,8 @@ export default function KanbanBoard({
                 </SortableContext>
               <tr>
                 <td style={tdStyle}>
-                  <Tooltip title={swimlaneMode ? 'Add swimlane' : 'Add label'}>
+                  {swimlaneMode && !archivedMode && (
+                  <Tooltip title="Add swimlane">
                     <Button
                       type="dashed"
                       size="small"
@@ -472,6 +482,7 @@ export default function KanbanBoard({
                       onClick={() => setAddRowOpen(true)}
                     />
                   </Tooltip>
+                  )}
                 </td>
                 {states.map(s => <td key={s} style={tdStyle}></td>)}
                 <td style={tdStyle}></td>
@@ -500,6 +511,7 @@ export default function KanbanBoard({
         onUpdate={handleUpdateTask}
         onDelete={onDeleteTask}
         onModalClose={handleModalClose}
+        readOnly={archivedMode}
       />
 
       <AddNameModal
@@ -510,12 +522,9 @@ export default function KanbanBoard({
       />
 
       <AddNameModal
-        title={swimlaneMode ? 'Add new swimlane' : 'Add new label'}
+        title="Add new swimlane"
         open={addRowOpen}
-        onOk={(name) => {
-          swimlaneMode ? onAddSwimlane(name) : onAddLabel(name)
-          setAddRowOpen(false)
-        }}
+        onOk={(name) => { onAddSwimlane(name); setAddRowOpen(false) }}
         onCancel={() => setAddRowOpen(false)}
       />
 
