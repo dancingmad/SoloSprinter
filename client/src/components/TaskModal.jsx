@@ -123,8 +123,12 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
   const [images, setImages] = useState([])
   const [roadmapStart, setRoadmapStart] = useState('')
   const [roadmapEnd, setRoadmapEnd] = useState('')
+  const [jira, setJira] = useState('')
+  const [logo, setLogo] = useState('')
   const titleTimer = useRef(null)
-  const descTimer = useRef(null)
+  const descTimer  = useRef(null)
+  const jiraTimer  = useRef(null)
+  const logoTimer  = useRef(null)
   const editorWrapperRef = useRef(null)
 
   // Intercept paste events on the markdown editor and convert HTML → markdown
@@ -160,6 +164,8 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
       const sorted = [...months].sort()
       setRoadmapStart(sorted[0] || '')
       setRoadmapEnd(sorted[sorted.length - 1] || '')
+      setJira(task.jira || '')
+      setLogo(task.logo || '')
       // fetch images list
       fetch(`/api/boards/${boardId}/tasks/${task.id}/images`)
         .then(r => r.json())
@@ -174,6 +180,18 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
     titleTimer.current = setTimeout(() => {
       if (val.trim()) onUpdate(task.id, { title: val })
     }, 600)
+  }
+
+  const saveJira = (val) => {
+    clearTimeout(jiraTimer.current)
+    setJira(val)
+    jiraTimer.current = setTimeout(() => onUpdate(task.id, { jira: val }), 600)
+  }
+
+  const saveLogo = (val) => {
+    clearTimeout(logoTimer.current)
+    setLogo(val)
+    logoTimer.current = setTimeout(() => onUpdate(task.id, { logo: val }), 600)
   }
 
   const saveDescription = (val) => {
@@ -481,6 +499,46 @@ export default function TaskModal({ boardId, task, states, swimlanes, labels, op
           >
             Clear
           </Button>
+        )}
+      </Space>
+
+      <Space wrap style={{ marginTop: 10, alignItems: 'center' }}>
+        <Typography.Text style={{ fontSize: 13, minWidth: 68 }}>Jira</Typography.Text>
+        <Input
+          value={jira}
+          onChange={e => saveJira(e.target.value)}
+          placeholder="PROJ-123 or full URL"
+          style={{ width: 240 }}
+          disabled={readOnly}
+          allowClear
+        />
+        {jira && (
+          <a
+            href={jira.startsWith('http') ? jira : `https://jira.atlassian.net/browse/${jira}`}
+            target="_blank" rel="noreferrer"
+            style={{ fontSize: 12 }}
+          >
+            Open ↗
+          </a>
+        )}
+      </Space>
+
+      <Space wrap style={{ marginTop: 10, alignItems: 'center' }}>
+        <Typography.Text style={{ fontSize: 13, minWidth: 68 }}>Logo URL</Typography.Text>
+        <Input
+          value={logo}
+          onChange={e => saveLogo(e.target.value)}
+          placeholder="https://…/logo.png"
+          style={{ width: 240 }}
+          disabled={readOnly}
+          allowClear
+        />
+        {logo && (
+          <img
+            src={logo}
+            alt="logo preview"
+            style={{ height: 32, width: 32, objectFit: 'contain', borderRadius: 4, border: '1px solid #e8e8e8' }}
+          />
         )}
       </Space>
 

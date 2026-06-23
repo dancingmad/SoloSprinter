@@ -170,6 +170,8 @@ function createTask(boardId, fields) {
   if (fields.roadmapMonths && fields.roadmapMonths.length > 0) {
     taskData.roadmapMonths = fields.roadmapMonths;
   }
+  if (fields.jira) taskData.jira = fields.jira;
+  if (fields.logo) taskData.logo = fields.logo;
   writeTask(boardId, id, taskData);
   appendHistory(boardId, id, { action: 'created', state: taskData.state, swimlane: taskData.swimlane, timestamp: now });
   return { id, ...taskData };
