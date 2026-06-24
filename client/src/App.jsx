@@ -49,6 +49,7 @@ function parseHash() {
       labelsInclude: p.get('li')    ? p.get('li').split('|').filter(Boolean)
                    : p.get('label') ? [p.get('label')]
                    : [],
+      statesInclude: p.get('si') ? p.get('si').split('|').filter(Boolean) : [],
       daysOld:      p.get('daysOld')      ? parseInt(p.get('daysOld'))      : null,
       maxPerColumn: p.get('maxPerColumn') ? parseInt(p.get('maxPerColumn')) : null,
     },
@@ -66,6 +67,7 @@ function buildHash(boardId, { viewMode, swimlaneMode, compactView, filters, road
   if (!swimlaneMode)                      p.set('rows',         'label')
   if (compactView)                        p.set('compact',      '1')
   if (filters?.labelsInclude?.length)     p.set('li', filters.labelsInclude.join('|'))
+  if (filters?.statesInclude?.length)     p.set('si', filters.statesInclude.join('|'))
   if (filters?.daysOld)                   p.set('daysOld',      String(filters.daysOld))
   if (filters?.maxPerColumn)              p.set('maxPerColumn', String(filters.maxPerColumn))
   // Only include the roadmap quarter when the roadmap is active
@@ -86,7 +88,7 @@ export default function App() {
   const [swimlaneMode, setSwimlaneMode] = useState(true)
   const [viewMode, setViewMode] = useState('kanban')
   const [compactView, setCompactView] = useState(false)
-  const [filters, setFilters] = useState({ labelsInclude: [], daysOld: null, maxPerColumn: null })
+  const [filters, setFilters] = useState({ labelsInclude: [], statesInclude: [], daysOld: null, maxPerColumn: null })
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set())
   const [archivedMode, setArchivedMode] = useState(false)
   const [roadmapViewStart, setRoadmapViewStart] = useState(defaultViewStart)
@@ -114,7 +116,7 @@ export default function App() {
       setSwimlaneMode(urlState.swimlaneMode !== undefined ? urlState.swimlaneMode : true)
       setViewMode(urlState.viewMode || 'kanban')
       setCompactView(urlState.compactView || false)
-      setFilters(urlState.filters || { labelsInclude: [], daysOld: null, maxPerColumn: null })
+      setFilters(urlState.filters || { labelsInclude: [], statesInclude: [], daysOld: null, maxPerColumn: null })
       if (urlState.roadmapViewStart) setRoadmapViewStart(urlState.roadmapViewStart)
       // Hash will be written by the URL-sync effect once state settles
     } catch (e) {
@@ -231,6 +233,9 @@ export default function App() {
         const all = [t.label, ...(t.extraLabels || [])].filter(Boolean)
         return filters.labelsInclude.some(l => all.includes(l))
       })
+    }
+    if (filters.statesInclude && filters.statesInclude.length > 0) {
+      result = result.filter(t => filters.statesInclude.includes(t.state))
     }
     if (filters.daysOld) {
       const cutoff = new Date()
@@ -552,6 +557,7 @@ export default function App() {
             <>
               <FilterBar
                 labels={derivedLabels}
+                states={states}
                 swimlaneMode={swimlaneMode}
                 onToggleSwimlaneMode={setSwimlaneMode}
                 filters={filters}
@@ -589,6 +595,7 @@ export default function App() {
                   compactView={compactView}
                   viewStart={roadmapViewStart}
                   onViewStartChange={setRoadmapViewStart}
+                  onFiltersChange={setFilters}
                   onCreateTask={handleCreateTask}
                   onUpdateTask={handleUpdateTask}
                   onDeleteTask={handleDeleteTask}

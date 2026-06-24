@@ -136,7 +136,7 @@ function barStateStyle(task) {
 
 export default function RoadmapBoard({
   boardId, tasks, swimlanes, labels, states,
-  filters = {},
+  filters = {}, onFiltersChange,
   swimlaneMode = true,
   onCreateTask, onUpdateTask, onDeleteTask,
   compactView,
@@ -294,6 +294,9 @@ export default function RoadmapBoard({
         return filters.labelsInclude.some(l => all.includes(l))
       })
     }
+    if (filters.statesInclude && filters.statesInclude.length > 0) {
+      result = result.filter(t => filters.statesInclude.includes(t.state))
+    }
     if (filters.daysOld) {
       const cutoff = new Date()
       cutoff.setDate(cutoff.getDate() - (filters.daysOld - 1))
@@ -372,9 +375,9 @@ export default function RoadmapBoard({
 
   // ── navigation ─────────────────────────────────────────────────────────────
 
-  const navStep   = zoomMonths === 3 ? 1 : zoomMonths === 6 ? 2 : 3
-  const prevLabel = zoomMonths === 3 ? 'Prev month' : zoomMonths === 6 ? 'Prev 2 months' : 'Prev quarter'
-  const nextLabel = zoomMonths === 3 ? 'Next month' : zoomMonths === 6 ? 'Next 2 months' : 'Next quarter'
+  const navStep   = zoomMonths >= 9 ? 3 : 1
+  const prevLabel = zoomMonths >= 9 ? 'Prev quarter' : 'Prev month'
+  const nextLabel = zoomMonths >= 9 ? 'Next quarter' : 'Next month'
 
   const headerRange = (() => {
     const first = visibleMonths[0]
@@ -399,7 +402,7 @@ export default function RoadmapBoard({
   return (
     <div style={isPresentationMode ? {
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      zIndex: 1000, background: '#fff', padding: 16,
+      zIndex: 1000, background: '#fff', padding: '12px 48px',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     } : { display: 'flex', flexDirection: 'column', height: '100%' }}>
       <style>{`@keyframes fadeInBar { from { opacity: 0 } to { opacity: 1 } }`}</style>
@@ -443,6 +446,32 @@ export default function RoadmapBoard({
           </Button>
         )}
         <div style={{ flex: 1 }} />
+        {isPresentationMode && onFiltersChange && (
+          <>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="All columns"
+              style={{ minWidth: 140, maxWidth: 260 }}
+              value={filters.statesInclude || []}
+              onChange={val => onFiltersChange({ ...filters, statesInclude: val || [] })}
+              options={(states || []).map(s => ({ label: s, value: s }))}
+              maxTagCount={1}
+              maxTagPlaceholder={n => `+${n.length} more`}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="All labels"
+              style={{ minWidth: 140, maxWidth: 260 }}
+              value={filters.labelsInclude || []}
+              onChange={val => onFiltersChange({ ...filters, labelsInclude: val || [] })}
+              options={(labels || []).map(l => ({ label: l, value: l }))}
+              maxTagCount={1}
+              maxTagPlaceholder={n => `+${n.length} more`}
+            />
+          </>
+        )}
         <Button
           type={isPresentationMode ? 'primary' : 'default'}
           icon={isPresentationMode ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
@@ -465,6 +494,7 @@ export default function RoadmapBoard({
           overflowX: 'auto',
           overflowY: 'auto',
           flex: 1,
+          alignContent: 'start',
           userSelect: draggingRef.current ? 'none' : undefined,
         }}
       >
@@ -520,7 +550,7 @@ export default function RoadmapBoard({
               background: isPresentationMode ? '#fff' : p.bg,
               border: isPresentationMode ? 'none' : undefined,
               borderBottom: isPresentationMode ? '2px solid #e0e0e0' : `1px solid ${p.border}`,
-              borderRight: isPresentationMode ? `${(colIdx => (colIdx + 1) % 3 === 0)(i) ? '3px solid #aaa' : '1px solid #e8e8e8'}` : undefined,
+              borderRight: isPresentationMode ? `${parseInt(m.split('-')[1]) % 3 === 0 ? '3px solid #aaa' : '1px solid #e8e8e8'}` : undefined,
               color: isPresentationMode ? '#444' : p.text,
               fontWeight: isPresentationMode ? 600 : 500,
               fontSize: isPresentationMode ? 14 : 12,
@@ -559,7 +589,7 @@ export default function RoadmapBoard({
                     }} />
                     {/* Per-column background cells — preserves vertical grid lines */}
                     {visibleMonths.map((m, colIdx) => {
-                      const isQuarterEnd = (colIdx + 1) % 3 === 0
+                      const isQuarterEnd = parseInt(m.split('-')[1]) % 3 === 0
                       return (
                         <div key={colIdx} style={{
                           gridColumn: colIdx + 2,
@@ -601,10 +631,10 @@ export default function RoadmapBoard({
                   </React.Fragment>
                 )
               }
-              const currentRow = presRow++
               const months = getEffectiveMonths(item.task)
               const range  = taskColRange(months, visibleMonths)
-              if (!range) return null
+              if (!range) return null       // skip out-of-view tasks without consuming a row
+              const currentRow = presRow++
               const rowColor = rowColorMap[item.rowKey] ?? '#8c8c8c'
 
               return (
@@ -621,7 +651,7 @@ export default function RoadmapBoard({
                   {/* Month background cells */}
                   {visibleMonths.map((m, colIdx) => {
                     const p = Q_PALETTE[quarterIndex(m)]
-                    const isQuarterEnd = (colIdx + 1) % 3 === 0
+                    const isQuarterEnd = parseInt(m.split('-')[1]) % 3 === 0
                     return (
                       <div key={colIdx} style={{
                         gridColumn: colIdx + 2,
@@ -797,7 +827,7 @@ export default function RoadmapBoard({
                   {/* Month background cells */}
                   {visibleMonths.map((m, colIdx) => {
                     const p = Q_PALETTE[quarterIndex(m)]
-                    const isQuarterEnd = (colIdx + 1) % 3 === 0
+                    const isQuarterEnd = parseInt(m.split('-')[1]) % 3 === 0
                     return (
                       <div key={colIdx} style={{
                         gridColumn: colIdx + 2,

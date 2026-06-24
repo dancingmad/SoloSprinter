@@ -12,6 +12,7 @@ const DAYS_OPTIONS = [
 
 export default function FilterBar({
   labels,
+  states,
   swimlaneMode, onToggleSwimlaneMode,
   filters, onFiltersChange,
   compactView, onToggleCompactView,
@@ -76,6 +77,24 @@ export default function FilterBar({
             {archivedMode ? 'Exit Archive View' : 'Archived'}
           </Button>
         </Col>
+
+        {/* States filter — multi-select dropdown */}
+        {states && states.length > 0 && (
+          <Col style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text style={{ whiteSpace: 'nowrap' }}>Columns:</Typography.Text>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="All columns"
+              style={{ minWidth: 160, maxWidth: 320 }}
+              value={filters.statesInclude}
+              onChange={val => onFiltersChange({ ...filters, statesInclude: val || [] })}
+              options={states.map(s => ({ label: s, value: s }))}
+              maxTagCount={1}
+              maxTagPlaceholder={omitted => `+${omitted.length} more`}
+            />
+          </Col>
+        )}
 
         {/* Label filter — multi-select dropdown */}
         {labels.length > 0 && (

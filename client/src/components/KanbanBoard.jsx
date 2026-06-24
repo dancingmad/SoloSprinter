@@ -192,6 +192,9 @@ export default function KanbanBoard({
         return filters.labelsInclude.some(l => all.includes(l))
       })
     }
+    if (filters.statesInclude && filters.statesInclude.length > 0) {
+      result = result.filter(t => filters.statesInclude.includes(t.state))
+    }
     if (filters.daysOld) {
       const cutoff = new Date()
       cutoff.setHours(0, 0, 0, 0)
